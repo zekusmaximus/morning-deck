@@ -1,19 +1,18 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import DashboardLayout from "./components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 
-// Pages
-import Home from "./pages/Home";
-import MorningDeck from "./pages/MorningDeck";
-import Clients from "./pages/Clients";
-import ClientDetail from "./pages/ClientDetail";
-import Login from "./pages/Login";
+const DashboardLayout = lazy(() => import("./components/DashboardLayout"));
+const Home = lazy(() => import("./pages/Home"));
+const MorningDeck = lazy(() => import("./pages/MorningDeck"));
+const Clients = lazy(() => import("./pages/Clients"));
+const ClientDetail = lazy(() => import("./pages/ClientDetail"));
+const Login = lazy(() => import("./pages/Login"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -77,13 +76,21 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          {showLayout ? (
-            <DashboardLayout>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
+                Loading...
+              </div>
+            }
+          >
+            {showLayout ? (
+              <DashboardLayout>
+                <Router />
+              </DashboardLayout>
+            ) : (
               <Router />
-            </DashboardLayout>
-          ) : (
-            <Router />
-          )}
+            )}
+          </Suspense>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
