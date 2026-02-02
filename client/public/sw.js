@@ -1,4 +1,4 @@
-const CACHE_NAME = 'morning-deck-v1';
+const CACHE_NAME = 'morning-deck-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -32,33 +32,40 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - network first, fallback to cache
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
   if (event.request.method !== 'GET') return;
-  
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
   // Skip API requests
-  if (event.request.url.includes('/api/')) return;
-  
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Navigation requests: network-first, fallback to cached shell
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Avoid caching scripts/styles to prevent stale hashed bundles
+  const dest = event.request.destination;
+  if (dest === 'script' || dest === 'style') {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Cache-first for everything else (icons, manifest, images)
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Clone the response before caching
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request).then((response) => {
         const responseClone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseClone);
         });
         return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          // Return offline page for navigation requests
-          if (event.request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          return new Response('Offline', { status: 503 });
-        });
-      })
+      });
+    })
   );
 });
