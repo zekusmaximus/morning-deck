@@ -23,13 +23,11 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { 
-  Check, 
-  X, 
+  Check,
   ChevronDown,
   ChevronUp,
   Sunrise,
-  CheckCircle2,
-  SkipForward,
+  Flag,
   Clock,
   Building2,
   Calendar,
@@ -40,13 +38,12 @@ import {
   Mail,
   Trophy
 } from "lucide-react";
-import { toast } from "sonner";
 
 type ReviewItem = {
   id: number;
   clientId: number;
   orderIndex: number;
-  status: "pending" | "reviewed" | "skipped";
+  status: "pending" | "reviewed" | "flagged";
   reviewedAt: Date | null;
   quickNote: string | null;
   clientName: string;
@@ -55,13 +52,15 @@ type ReviewItem = {
   clientIndustry: string | null;
   clientHealthScore: number | null;
   clientLastContactAt: Date | null;
+  clientLastTouchedAt: Date | null;
+  clientNotes: string | null;
 };
 
 export default function MorningDeck() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showSkipDialog, setShowSkipDialog] = useState(false);
-  const [skipNote, setSkipNote] = useState("");
+  const [showFlagDialog, setShowFlagDialog] = useState(false);
+  const [flagNote, setFlagNote] = useState("");
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchDelta, setTouchDelta] = useState(0);
@@ -144,7 +143,7 @@ export default function MorningDeck() {
     if (touchDelta > threshold) {
       handleReview();
     } else if (touchDelta < -threshold) {
-      setShowSkipDialog(true);
+      setShowFlagDialog(true);
     }
     
     setTouchStart(null);
@@ -162,18 +161,18 @@ export default function MorningDeck() {
     }, 300);
   };
 
-  const handleSkip = () => {
+  const handleFlag = (note?: string) => {
     if (!currentItem) return;
     
     setSwipeDirection("left");
     setTimeout(() => {
       markItemMutation.mutate({ 
         itemId: currentItem.id, 
-        status: "skipped",
-        quickNote: skipNote || undefined,
+        status: "flagged",
+        quickNote: note,
       });
-      setShowSkipDialog(false);
-      setSkipNote("");
+      setShowFlagDialog(false);
+      setFlagNote("");
       moveToNext();
       setSwipeDirection(null);
     }, 300);
@@ -261,13 +260,13 @@ export default function MorningDeck() {
   const totalItems = reviewItems.length;
   const completedItems = reviewItems.filter(item => item.status !== "pending").length;
   const reviewedItems = reviewItems.filter(item => item.status === "reviewed").length;
-  const skippedItems = reviewItems.filter(item => item.status === "skipped").length;
+  const flaggedItems = reviewItems.filter(item => item.status === "flagged").length;
   const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
   const isComplete = completedItems === totalItems;
 
   // Completion screen
   if (isComplete || currentIndex >= totalItems) {
-    const skippedClients = reviewItems.filter(item => item.status === "skipped");
+    const flaggedClients = reviewItems.filter(item => item.status === "flagged");
     
     return (
       <div className="max-w-lg mx-auto space-y-6 px-4 py-8">
@@ -289,22 +288,22 @@ export default function MorningDeck() {
                 <div className="text-sm text-muted-foreground">Reviewed</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-yellow-500">{skippedItems}</div>
-                <div className="text-sm text-muted-foreground">Skipped</div>
+                <div className="text-2xl font-bold text-red-500">{flaggedItems}</div>
+                <div className="text-sm text-muted-foreground">Flagged</div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {skippedClients.length > 0 && (
+        {flaggedClients.length > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Skipped Clients</CardTitle>
+              <CardTitle className="text-base">Flagged Clients</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {skippedClients.map(item => (
+              {flaggedClients.map(item => (
                 <div key={item.id} className="flex items-start gap-2 p-2 rounded-lg bg-muted/50">
-                  <SkipForward className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+                  <Flag className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium text-sm">{item.clientName}</p>
                     {item.quickNote && (
@@ -343,7 +342,10 @@ export default function MorningDeck() {
     return days;
   };
 
-  const daysSinceContact = getDaysSinceContact(currentItem?.clientLastContactAt ?? null);
+  const daysSinceTouch = getDaysSinceContact(currentItem?.clientLastTouchedAt ?? null);
+  const bulletNotes = currentItem?.clientNotes
+    ? currentItem.clientNotes.split(/\r?\n/).map(note => note.trim()).filter(Boolean).slice(0, 5)
+    : [];
 
   return (
     <div className="max-w-lg mx-auto space-y-4 px-4 pb-24">
@@ -352,7 +354,7 @@ export default function MorningDeck() {
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">{completedItems} / {totalItems}</span>
           <span className="text-muted-foreground">
-            {reviewedItems} reviewed, {skippedItems} skipped
+            {reviewedItems} reviewed, {flaggedItems} flagged
           </span>
         </div>
         <Progress value={progress} className="h-2" />
@@ -386,16 +388,14 @@ export default function MorningDeck() {
                     </Badge>
                   </div>
                 </div>
-                {daysSinceContact !== null && (
-                  <div className={`text-xs px-2 py-1 rounded-full ${
-                    daysSinceContact > 14 ? "bg-red-500/10 text-red-500" :
-                    daysSinceContact > 7 ? "bg-yellow-500/10 text-yellow-500" :
-                    "bg-muted text-muted-foreground"
-                  }`}>
-                    <Clock className="h-3 w-3 inline mr-1" />
-                    {daysSinceContact}d ago
-                  </div>
-                )}
+                <div className={`text-xs px-2 py-1 rounded-full ${
+                  daysSinceTouch === null || daysSinceTouch > 14 ? "bg-red-500/10 text-red-500" :
+                  daysSinceTouch > 7 ? "bg-yellow-500/10 text-yellow-500" :
+                  "bg-muted text-muted-foreground"
+                }`}>
+                  <Clock className="h-3 w-3 inline mr-1" />
+                  {daysSinceTouch === null ? "No touch yet" : `${daysSinceTouch}d ago`}
+                </div>
               </div>
             </CardHeader>
 
@@ -419,6 +419,14 @@ export default function MorningDeck() {
                   <span className="text-xs font-medium">{currentItem.clientHealthScore ?? 50}%</span>
                 </div>
               </div>
+
+              {bulletNotes.length > 0 && (
+                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                  {bulletNotes.map((note, index) => (
+                    <li key={`${currentItem.id}-note-${index}`}>{note}</li>
+                  ))}
+                </ul>
+              )}
 
               {/* Expanded View */}
               {isExpanded && (
@@ -572,12 +580,12 @@ export default function MorningDeck() {
           <Button
             variant="outline"
             size="lg"
-            className="flex-1 h-14 text-yellow-600 border-yellow-200 hover:bg-yellow-50 hover:border-yellow-300"
-            onClick={() => setShowSkipDialog(true)}
+            className="flex-1 h-14 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+            onClick={() => setShowFlagDialog(true)}
             disabled={markItemMutation.isPending}
           >
-            <X className="h-5 w-5 mr-2" />
-            Skip
+            <Flag className="h-5 w-5 mr-2" />
+            Flag
           </Button>
           <Button
             size="lg"
@@ -591,27 +599,34 @@ export default function MorningDeck() {
         </div>
       </div>
 
-      {/* Skip Dialog */}
-      <Dialog open={showSkipDialog} onOpenChange={setShowSkipDialog}>
+      {/* Flag Dialog */}
+      <Dialog open={showFlagDialog} onOpenChange={setShowFlagDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Skip {currentItem?.clientName}?</DialogTitle>
+            <DialogTitle>Flag {currentItem?.clientName}?</DialogTitle>
             <DialogDescription>
-              Add an optional note about why you're skipping this client.
+              Add an optional note about why you're flagging this client.
             </DialogDescription>
           </DialogHeader>
           <Textarea
             placeholder="Optional note..."
-            value={skipNote}
-            onChange={(e) => setSkipNote(e.target.value)}
+            value={flagNote}
+            onChange={(e) => setFlagNote(e.target.value)}
             rows={3}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSkipDialog(false)}>
+            <Button variant="outline" onClick={() => setShowFlagDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSkip} disabled={markItemMutation.isPending}>
-              Skip Client
+            <Button
+              variant="outline"
+              onClick={() => handleFlag(undefined)}
+              disabled={markItemMutation.isPending}
+            >
+              Flag Without Note
+            </Button>
+            <Button onClick={() => handleFlag(flagNote || undefined)} disabled={markItemMutation.isPending}>
+              Save & Flag
             </Button>
           </DialogFooter>
         </DialogContent>

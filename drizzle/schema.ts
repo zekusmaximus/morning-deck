@@ -33,6 +33,7 @@ export const clients = mysqlTable("clients", {
   healthScore: int("healthScore").default(50), // 0-100 relationship health score
   lastContactAt: timestamp("lastContactAt"),
   lastReviewedAt: timestamp("lastReviewedAt"),
+  lastTouchedAt: timestamp("lastTouchedAt"),
   notes: text("notes"), // Quick notes field
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -149,7 +150,7 @@ export const activityLog = mysqlTable("activity_log", {
   clientId: int("clientId"),
   entityType: mysqlEnum("entityType", ["client", "contact", "note", "task", "tag", "review"]).notNull(),
   entityId: int("entityId"),
-  action: mysqlEnum("action", ["created", "updated", "deleted", "reviewed", "skipped", "completed"]).notNull(),
+  action: mysqlEnum("action", ["created", "updated", "deleted", "reviewed", "flagged", "completed"]).notNull(),
   details: text("details"), // JSON string with additional details
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -166,7 +167,7 @@ export const dailyReviews = mysqlTable("daily_reviews", {
   reviewDate: date("reviewDate").notNull(),
   totalClients: int("totalClients").notNull(),
   reviewedCount: int("reviewedCount").default(0).notNull(),
-  skippedCount: int("skippedCount").default(0).notNull(),
+  flaggedCount: int("flaggedCount").default(0).notNull(),
   isCompleted: boolean("isCompleted").default(false).notNull(),
   startedAt: timestamp("startedAt").defaultNow().notNull(),
   completedAt: timestamp("completedAt"),
@@ -184,7 +185,7 @@ export const dailyReviewItems = mysqlTable("daily_review_items", {
   dailyReviewId: int("dailyReviewId").notNull(),
   clientId: int("clientId").notNull(),
   orderIndex: int("orderIndex").notNull(),
-  status: mysqlEnum("status", ["pending", "reviewed", "skipped"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "reviewed", "flagged"]).default("pending").notNull(),
   reviewedAt: timestamp("reviewedAt"),
   quickNote: text("quickNote"),
 });

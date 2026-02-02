@@ -36,7 +36,7 @@ export default function Home() {
   }
 
   const reviewProgress = stats?.todayReviewProgress 
-    ? ((stats.todayReviewProgress.reviewed + stats.todayReviewProgress.skipped) / stats.todayReviewProgress.total) * 100
+    ? ((stats.todayReviewProgress.reviewed + stats.todayReviewProgress.flagged) / stats.todayReviewProgress.total) * 100
     : 0;
 
   return (
@@ -70,7 +70,7 @@ export default function Home() {
                 Today's Review Progress
               </CardTitle>
               <span className="text-sm text-muted-foreground">
-                {stats.todayReviewProgress.reviewed + stats.todayReviewProgress.skipped} / {stats.todayReviewProgress.total}
+                {stats.todayReviewProgress.reviewed + stats.todayReviewProgress.flagged} / {stats.todayReviewProgress.total}
               </span>
             </div>
           </CardHeader>
@@ -78,7 +78,7 @@ export default function Home() {
             <Progress value={reviewProgress} className="h-2" />
             <div className="flex justify-between mt-2 text-sm text-muted-foreground">
               <span>{stats.todayReviewProgress.reviewed} reviewed</span>
-              <span>{stats.todayReviewProgress.skipped} skipped</span>
+              <span>{stats.todayReviewProgress.flagged} flagged</span>
             </div>
           </CardContent>
         </Card>
