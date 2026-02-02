@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, sql, isNull, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users,
@@ -14,6 +14,8 @@ import {
   dailyReviewItems, InsertDailyReviewItem, DailyReviewItem,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { getNewYorkDate } from "./_core/time";
+import { sortClientsCaseInsensitive } from "./_core/morningDeck";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -106,7 +108,9 @@ export async function getClients(userId: number, status?: string) {
     conditions.push(eq(clients.status, status as "active" | "inactive" | "prospect"));
   }
   
-  return db.select().from(clients).where(and(...conditions)).orderBy(asc(clients.name));
+  return db.select().from(clients)
+    .where(and(...conditions))
+    .orderBy(asc(sql`lower(${clients.name})`));
 }
 
 export async function getClientById(userId: number, clientId: number) {
@@ -132,7 +136,7 @@ export async function updateClient(userId: number, clientId: number, data: Parti
   if (!db) throw new Error("Database not available");
   
   await db.update(clients)
-    .set({ ...data, updatedAt: new Date() })
+    .set({ ...data, updatedAt: new Date(), lastTouchedAt: new Date() })
     .where(and(eq(clients.id, clientId), eq(clients.userId, userId)));
 }
 
@@ -216,9 +220,9 @@ export async function createNote(data: InsertNote) {
   
   const result = await db.insert(notes).values(data);
   
-  // Update client's lastContactAt
+  // Update client's lastContactAt and lastTouchedAt
   await db.update(clients)
-    .set({ lastContactAt: new Date(), updatedAt: new Date() })
+    .set({ lastContactAt: new Date(), lastTouchedAt: new Date(), updatedAt: new Date() })
     .where(eq(clients.id, data.clientId));
   
   return { id: Number(result[0].insertId), ...data };
@@ -292,6 +296,17 @@ export async function updateTask(userId: number, taskId: number, data: Partial<I
   await db.update(tasks)
     .set(updateData)
     .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)));
+
+  if (data.status) {
+    const task = await db.select({ clientId: tasks.clientId }).from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)))
+      .limit(1);
+    if (task[0]?.clientId) {
+      await db.update(clients)
+        .set({ lastTouchedAt: new Date(), updatedAt: new Date() })
+        .where(eq(clients.id, task[0].clientId));
+    }
+  }
 }
 
 export async function deleteTask(userId: number, taskId: number) {
@@ -400,16 +415,12 @@ export async function getTodayReview(userId: number) {
   const db = await getDb();
   if (!db) return undefined;
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const today = getNewYorkDate();
   
   const result = await db.select().from(dailyReviews)
     .where(and(
       eq(dailyReviews.userId, userId),
-      gte(dailyReviews.reviewDate, today),
-      lte(dailyReviews.reviewDate, today)
+      eq(dailyReviews.reviewDate, today)
     ))
     .limit(1);
   
@@ -420,38 +431,38 @@ export async function createDailyReview(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getNewYorkDate();
   
   // Get all active clients
   const activeClients = await db.select().from(clients)
     .where(and(eq(clients.userId, userId), eq(clients.status, "active")))
-    .orderBy(asc(clients.name));
+    .orderBy(asc(sql`lower(${clients.name})`));
+  const orderedClients = sortClientsCaseInsensitive(activeClients);
   
   // Create the daily review
   const reviewResult = await db.insert(dailyReviews).values({
     userId,
     reviewDate: today,
-    totalClients: activeClients.length,
+    totalClients: orderedClients.length,
     reviewedCount: 0,
-    skippedCount: 0,
+    flaggedCount: 0,
     isCompleted: false,
   });
   
   const reviewId = Number(reviewResult[0].insertId);
   
   // Create review items for each client
-  for (let i = 0; i < activeClients.length; i++) {
+  for (let i = 0; i < orderedClients.length; i++) {
     await db.insert(dailyReviewItems).values({
       userId,
       dailyReviewId: reviewId,
-      clientId: activeClients[i].id,
+      clientId: orderedClients[i].id,
       orderIndex: i,
       status: "pending",
     });
   }
   
-  return { id: reviewId, totalClients: activeClients.length };
+  return { id: reviewId, totalClients: orderedClients.length };
 }
 
 export async function getDailyReviewItems(userId: number, reviewId: number) {
@@ -471,6 +482,8 @@ export async function getDailyReviewItems(userId: number, reviewId: number) {
     clientIndustry: clients.industry,
     clientHealthScore: clients.healthScore,
     clientLastContactAt: clients.lastContactAt,
+    clientLastTouchedAt: clients.lastTouchedAt,
+    clientNotes: clients.notes,
   })
     .from(dailyReviewItems)
     .innerJoin(clients, eq(dailyReviewItems.clientId, clients.id))
@@ -478,7 +491,7 @@ export async function getDailyReviewItems(userId: number, reviewId: number) {
     .orderBy(asc(dailyReviewItems.orderIndex));
 }
 
-export async function updateReviewItem(userId: number, itemId: number, status: "reviewed" | "skipped", quickNote?: string) {
+export async function updateReviewItem(userId: number, itemId: number, status: "reviewed" | "flagged", quickNote?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -497,7 +510,7 @@ export async function updateReviewItem(userId: number, itemId: number, status: "
   
   // Update client's lastReviewedAt
   await db.update(clients)
-    .set({ lastReviewedAt: new Date(), updatedAt: new Date() })
+    .set({ lastReviewedAt: new Date(), lastTouchedAt: new Date(), updatedAt: new Date() })
     .where(eq(clients.id, item[0].clientId));
   
   // Update daily review counts
@@ -505,13 +518,13 @@ export async function updateReviewItem(userId: number, itemId: number, status: "
     .where(eq(dailyReviewItems.dailyReviewId, item[0].dailyReviewId));
   
   const reviewedCount = reviewItems.filter(i => i.status === "reviewed").length;
-  const skippedCount = reviewItems.filter(i => i.status === "skipped").length;
+  const flaggedCount = reviewItems.filter(i => i.status === "flagged").length;
   const isCompleted = reviewItems.every(i => i.status !== "pending");
   
   await db.update(dailyReviews)
     .set({
       reviewedCount,
-      skippedCount,
+      flaggedCount,
       isCompleted,
       completedAt: isCompleted ? new Date() : null,
     })
@@ -543,7 +556,20 @@ export async function getReviewHistory(userId: number, limit = 30) {
 // ============================================================================
 export async function getDashboardStats(userId: number) {
   const db = await getDb();
-  if (!db) return null;
+  if (!db) {
+    return {
+      totalClients: 0,
+      activeClients: 0,
+      prospectClients: 0,
+      inactiveClients: 0,
+      pendingTasks: 0,
+      overdueTasks: 0,
+      highPriorityClients: 0,
+      needsAttention: 0,
+      todayReviewCompleted: false,
+      todayReviewProgress: null,
+    };
+  }
   
   const allClients = await db.select().from(clients).where(eq(clients.userId, userId));
   const allTasks = await db.select().from(tasks).where(eq(tasks.userId, userId));
@@ -582,7 +608,7 @@ export async function getDashboardStats(userId: number) {
     todayReviewCompleted: todayReview?.isCompleted ?? false,
     todayReviewProgress: todayReview ? {
       reviewed: todayReview.reviewedCount,
-      skipped: todayReview.skippedCount,
+      flagged: todayReview.flaggedCount,
       total: todayReview.totalClients,
     } : null,
   };

@@ -9,7 +9,7 @@ import {
   Pencil,
   Trash2,
   CheckCircle,
-  SkipForward,
+  Flag,
   Eye,
   User
 } from "lucide-react";
@@ -20,7 +20,7 @@ const actionIcons: Record<string, React.ReactNode> = {
   updated: <Pencil className="h-4 w-4 text-blue-500" />,
   deleted: <Trash2 className="h-4 w-4 text-red-500" />,
   reviewed: <Eye className="h-4 w-4 text-primary" />,
-  skipped: <SkipForward className="h-4 w-4 text-yellow-500" />,
+  flagged: <Flag className="h-4 w-4 text-red-500" />,
   completed: <CheckCircle className="h-4 w-4 text-green-500" />,
 };
 

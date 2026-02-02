@@ -2,6 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { normalizeClientBullets } from "./_core/morningDeck";
 import { z } from "zod";
 import * as db from "./db";
 
@@ -40,7 +41,7 @@ const clientRouter = router({
         industry: input.industry || null,
         revenue: input.revenue || null,
         healthScore: input.healthScore,
-        notes: input.notes || null,
+        notes: normalizeClientBullets(input.notes ?? null),
       });
       
       await db.logActivity({
@@ -68,7 +69,10 @@ const clientRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      await db.updateClient(ctx.user.id, id, data);
+      await db.updateClient(ctx.user.id, id, {
+        ...data,
+        notes: normalizeClientBullets(data.notes),
+      });
       
       await db.logActivity({
         userId: ctx.user.id,
@@ -421,7 +425,7 @@ const reviewRouter = router({
   markItem: protectedProcedure
     .input(z.object({
       itemId: z.number(),
-      status: z.enum(["reviewed", "skipped"]),
+      status: z.enum(["reviewed", "flagged"]),
       quickNote: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
