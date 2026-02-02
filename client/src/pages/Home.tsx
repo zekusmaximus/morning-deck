@@ -1,4 +1,7 @@
-import { trpc } from "@/lib/trpc";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { getNyDateKey } from "@/lib/date";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -17,7 +20,82 @@ import { useLocation } from "wouter";
 
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
+  const { user, loading } = useAuth();
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ["dashboard-stats"],
+    enabled: !!user,
+    queryFn: async () => {
+      const todayKey = getNyDateKey();
+      const [{ data: clients, error: clientsError }, { data: tasks, error: tasksError }] =
+        await Promise.all([
+          supabase.from("clients").select("id,status,priority,last_touched_at"),
+          supabase
+            .from("client_tasks")
+            .select("id,is_complete,due_date")
+            .eq("is_complete", false),
+        ]);
+
+      if (clientsError) throw clientsError;
+      if (tasksError) throw tasksError;
+
+      const activeClients = clients?.filter((client) => client.status === "active") ?? [];
+      const inactiveClients = clients?.filter((client) => client.status === "inactive") ?? [];
+      const prospectClients = clients?.filter((client) => client.status === "prospect") ?? [];
+      const highPriorityClients =
+        clients?.filter((client) => client.priority === "high") ?? [];
+      const now = new Date();
+      const needsAttention =
+        clients?.filter((client) => {
+          if (!client.last_touched_at) return false;
+          const diff =
+            now.getTime() - new Date(client.last_touched_at).getTime();
+          return diff >= 7 * 24 * 60 * 60 * 1000;
+        }) ?? [];
+      const overdueTasks =
+        tasks?.filter(
+          (task) =>
+            task.due_date &&
+            new Date(task.due_date).getTime() < now.getTime()
+        ) ?? [];
+
+      const { data: dailyRun } = await supabase
+        .from("daily_runs")
+        .select("id")
+        .eq("run_date", todayKey)
+        .maybeSingle();
+
+      let todayReviewProgress = null as
+        | { reviewed: number; flagged: number; total: number }
+        | null;
+
+      if (dailyRun?.id) {
+        const { data: dailyRunClients } = await supabase
+          .from("daily_run_clients")
+          .select("outcome")
+          .eq("daily_run_id", dailyRun.id);
+
+        const reviewed =
+          dailyRunClients?.filter((item) => item.outcome === "reviewed")
+            .length ?? 0;
+        const flagged =
+          dailyRunClients?.filter((item) => item.outcome === "flagged").length ??
+          0;
+        const total = dailyRunClients?.length ?? 0;
+        todayReviewProgress = { reviewed, flagged, total };
+      }
+
+      return {
+        activeClients: activeClients.length,
+        inactiveClients: inactiveClients.length,
+        prospectClients: prospectClients.length,
+        highPriorityClients: highPriorityClients.length,
+        needsAttention: needsAttention.length,
+        pendingTasks: tasks?.length ?? 0,
+        overdueTasks: overdueTasks.length,
+        todayReviewProgress,
+      };
+    },
+  });
 
   if (isLoading) {
     return (
@@ -35,8 +113,22 @@ export default function Home() {
     );
   }
 
-  const reviewProgress = stats?.todayReviewProgress 
-    ? ((stats.todayReviewProgress.reviewed + stats.todayReviewProgress.flagged) / stats.todayReviewProgress.total) * 100
+  if (!loading && !user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome to Morning Deck</h1>
+        <p className="text-muted-foreground max-w-md">
+          Sign in to review your clients and start today&#39;s deck.
+        </p>
+        <Button onClick={() => setLocation("/login")}>Go to login</Button>
+      </div>
+    );
+  }
+
+  const reviewProgress = stats?.todayReviewProgress?.total
+    ? ((stats.todayReviewProgress.reviewed + stats.todayReviewProgress.flagged) /
+        stats.todayReviewProgress.total) *
+      100
     : 0;
 
   return (
@@ -158,7 +250,7 @@ export default function Home() {
             <CardDescription>Common tasks to get started</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
-            <Button 
+            <Button
               variant="outline" 
               className="justify-start h-auto py-3"
               onClick={() => setLocation("/clients")}
@@ -169,15 +261,17 @@ export default function Home() {
                 <div className="text-xs text-muted-foreground">Manage your client portfolio</div>
               </div>
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="justify-start h-auto py-3"
-              onClick={() => setLocation("/tasks")}
+              onClick={() => setLocation("/morning")}
             >
-              <CheckSquare className="h-4 w-4 mr-3 text-primary" />
+              <Sunrise className="h-4 w-4 mr-3 text-primary" />
               <div className="text-left">
-                <div className="font-medium">Review Tasks</div>
-                <div className="text-xs text-muted-foreground">Check pending and overdue tasks</div>
+                <div className="font-medium">Review Morning Deck</div>
+                <div className="text-xs text-muted-foreground">
+                  Start today&#39;s client ritual
+                </div>
               </div>
             </Button>
           </CardContent>
@@ -192,7 +286,7 @@ export default function Home() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 The Morning Deck helps you maintain discipline by reviewing every active client daily. 
-                Swipe through cards, mark as reviewed or skip, and stay on top of your relationships.
+                Swipe through cards, mark as reviewed or flagged, and stay on top of your relationships.
               </p>
               <Button 
                 onClick={() => setLocation("/morning")}

@@ -20,33 +20,22 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { 
   LayoutDashboard, 
   LogOut, 
   PanelLeft, 
   Users, 
-  CheckSquare, 
-  FileText, 
-  Tags, 
-  Activity,
   Sunrise,
   Settings
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Sunrise, label: "Morning Deck", path: "/morning" },
   { icon: Users, label: "Clients", path: "/clients" },
-  { icon: CheckSquare, label: "Tasks", path: "/tasks" },
-  { icon: FileText, label: "Notes", path: "/notes" },
-  { icon: Tags, label: "Tags", path: "/tags" },
-  { icon: Activity, label: "Activity", path: "/activity" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -63,44 +52,9 @@ export default function DashboardLayout({
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user } = useAuth();
-
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
-
-  if (loading) {
-    return <DashboardLayoutSkeleton />
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen gradient-subtle">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Sunrise className="h-8 w-8 text-primary" />
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Morning Deck
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Start your day with clarity. Review your clients, track progress, and maintain meaningful relationships.
-            </p>
-          </div>
-          <Button
-            onClick={() => {
-              window.location.href = getLoginUrl();
-            }}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in to continue
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <SidebarProvider
@@ -228,12 +182,20 @@ function DashboardLayoutContent({
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Avatar className="h-9 w-9 border shrink-0">
                     <AvatarFallback className="text-xs font-medium bg-primary/10 text-primary">
-                      {user?.name?.charAt(0).toUpperCase() || "U"}
+                      {(
+                        (user?.user_metadata?.full_name as string | undefined) ??
+                        user?.email ??
+                        "U"
+                      )
+                        .charAt(0)
+                        .toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "User"}
+                      {(user?.user_metadata?.full_name as string | undefined) ??
+                        user?.email ??
+                        "User"}
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-1.5">
                       {user?.email || "-"}

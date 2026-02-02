@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { trpc } from "@/lib/trpc";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function Clients() {
   const [, setLocation] = useLocation();
@@ -46,15 +48,41 @@ export default function Clients() {
     healthScore: 50,
   });
 
-  const utils = trpc.useUtils();
-  const { data: clients, isLoading } = trpc.clients.list.useQuery(
-    statusFilter !== "all" ? { status: statusFilter } : undefined
-  );
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
-  const createMutation = trpc.clients.create.useMutation({
-    onSuccess: () => {
-      utils.clients.list.invalidate();
-      utils.dashboard.stats.invalidate();
+  const { data: clients, isLoading } = useQuery({
+    queryKey: ["clients", statusFilter],
+    queryFn: async () => {
+      let query = supabase
+        .from("clients")
+        .select("*")
+        .order("name", { ascending: true });
+      if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("clients").insert({
+        user_id: user.id,
+        name: newClient.name,
+        status: newClient.status,
+        priority: newClient.priority,
+        industry: newClient.industry || null,
+        health_score: newClient.healthScore,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["clients"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       setIsCreateOpen(false);
       setNewClient({
         name: "",
@@ -65,7 +93,7 @@ export default function Clients() {
       });
       toast.success("Client created successfully");
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast.error(error.message);
     },
   });
@@ -80,7 +108,7 @@ export default function Clients() {
       toast.error("Client name is required");
       return;
     }
-    createMutation.mutate(newClient);
+    createMutation.mutate();
   };
 
   const getStatusBadge = (status: string) => {
@@ -294,12 +322,12 @@ export default function Clients() {
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Health Score</span>
-                    <span>{client.healthScore ?? 50}%</span>
+                    <span>{client.health_score ?? 50}%</span>
                   </div>
                   <div className="health-bar">
                     <div 
-                      className={`health-bar-fill ${getHealthColor(client.healthScore)}`}
-                      style={{ width: `${client.healthScore ?? 50}%` }}
+                      className={`health-bar-fill ${getHealthColor(client.health_score)}`}
+                      style={{ width: `${client.health_score ?? 50}%` }}
                     />
                   </div>
                 </div>

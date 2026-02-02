@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { hasReachedBulletCap } from "@/lib/bullets";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,15 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -36,137 +32,343 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  ArrowLeft, 
-  Save, 
-  Trash2, 
-  Plus,
-  User,
-  FileText,
-  CheckSquare,
-  Tag,
-  Phone,
-  Mail,
-  Pin,
-  Calendar
-} from "lucide-react";
-import { useLocation, useParams } from "wouter";
-import { toast } from "sonner";
+import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
 
-export default function ClientDetail() {
-  const { id } = useParams<{ id: string }>();
-  const clientId = parseInt(id || "0");
+const emptyContact = { name: "", role: "", email: "", phone: "" };
+const emptyTask = { title: "", dueDate: "", showInDeck: true };
+const emptyNote = { body: "" };
+const emptyLink = { label: "", url: "" };
+
+type ClientDetailProps = {
+  id: string;
+};
+
+export default function ClientDetail({ id }: ClientDetailProps) {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<any>(null);
+  const [newContact, setNewContact] = useState(emptyContact);
+  const [newTask, setNewTask] = useState(emptyTask);
+  const [newNote, setNewNote] = useState(emptyNote);
+  const [newBill, setNewBill] = useState(emptyLink);
+  const [newDoc, setNewDoc] = useState(emptyLink);
+  const [newBullet, setNewBullet] = useState("");
 
-  const utils = trpc.useUtils();
-  const { data: client, isLoading } = trpc.clients.get.useQuery({ id: clientId });
-  const { data: contacts } = trpc.contact.list.useQuery({ clientId });
-  const { data: notes } = trpc.note.list.useQuery({ clientId });
-  const { data: tasks } = trpc.task.list.useQuery({ clientId });
-  const { data: clientTags } = trpc.clients.getTags.useQuery({ clientId });
-  const { data: allTags } = trpc.tag.list.useQuery();
+  const { data: client, isLoading } = useQuery({
+    queryKey: ["client", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  const updateMutation = trpc.clients.update.useMutation({
-    onSuccess: () => {
-      utils.clients.get.invalidate({ id: clientId });
-      utils.clients.list.invalidate();
+  const { data: contacts } = useQuery({
+    queryKey: ["client-contacts", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_contacts")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: notes } = useQuery({
+    queryKey: ["client-notes", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_notes")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: tasks } = useQuery({
+    queryKey: ["client-tasks", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_tasks")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: bullets } = useQuery({
+    queryKey: ["client-bullets", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_bullets")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: bills } = useQuery({
+    queryKey: ["client-bills", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_bill_links")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: documents } = useQuery({
+    queryKey: ["client-docs", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_doc_links")
+        .select("*")
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const updateClientMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("clients")
+        .update({
+          name: editData.name,
+          status: editData.status,
+          priority: editData.priority,
+          industry: editData.industry || null,
+          health_score: editData.health_score,
+          today_signal: editData.today_signal || null,
+          last_touched_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
+      await queryClient.invalidateQueries({ queryKey: ["clients"] });
       setIsEditing(false);
       toast.success("Client updated successfully");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteMutation = trpc.clients.delete.useMutation({
+  const deleteClientMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("clients").delete().eq("id", id);
+      if (error) throw error;
+    },
     onSuccess: () => {
-      utils.clients.list.invalidate();
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
       setLocation("/clients");
       toast.success("Client deleted");
     },
-    onError: (error) => toast.error(error.message),
   });
 
-  // Contact mutations
-  const [newContact, setNewContact] = useState({ name: "", role: "", email: "", phone: "", isPrimary: false });
-  const [isContactDialogOpen, setIsContactDialogOpen] = useState(false);
-  
-  const createContactMutation = trpc.contact.create.useMutation({
-    onSuccess: () => {
-      utils.contact.list.invalidate({ clientId });
-      setIsContactDialogOpen(false);
-      setNewContact({ name: "", role: "", email: "", phone: "", isPrimary: false });
+  const createContactMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_contacts").insert({
+        user_id: user.id,
+        client_id: id,
+        name: newContact.name,
+        role: newContact.role || null,
+        email: newContact.email || null,
+        phone: newContact.phone || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-contacts", id] });
+      setNewContact(emptyContact);
       toast.success("Contact added");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteContactMutation = trpc.contact.delete.useMutation({
-    onSuccess: () => {
-      utils.contact.list.invalidate({ clientId });
-      toast.success("Contact deleted");
+  const deleteContactMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      const { error } = await supabase
+        .from("client_contacts")
+        .delete()
+        .eq("id", contactId);
+      if (error) throw error;
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-contacts", id] }),
   });
 
-  // Note mutations
-  const [newNote, setNewNote] = useState({ title: "", content: "" });
-  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
-
-  const createNoteMutation = trpc.note.create.useMutation({
-    onSuccess: () => {
-      utils.note.list.invalidate({ clientId });
-      utils.clients.get.invalidate({ id: clientId });
-      setIsNoteDialogOpen(false);
-      setNewNote({ title: "", content: "" });
+  const createNoteMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_notes").insert({
+        user_id: user.id,
+        client_id: id,
+        body: newNote.body,
+      });
+      if (error) throw error;
+      await supabase
+        .from("clients")
+        .update({ last_touched_at: new Date().toISOString() })
+        .eq("id", id);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-notes", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
+      setNewNote(emptyNote);
       toast.success("Note added");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteNoteMutation = trpc.note.delete.useMutation({
-    onSuccess: () => {
-      utils.note.list.invalidate({ clientId });
-      toast.success("Note deleted");
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId: string) => {
+      const { error } = await supabase.from("client_notes").delete().eq("id", noteId);
+      if (error) throw error;
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-notes", id] }),
   });
 
-  const togglePinMutation = trpc.note.update.useMutation({
-    onSuccess: () => utils.note.list.invalidate({ clientId }),
-  });
-
-  // Task mutations
-  const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium" as const, dueDate: "" });
-  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
-
-  const createTaskMutation = trpc.task.create.useMutation({
-    onSuccess: () => {
-      utils.task.list.invalidate({ clientId });
-      setIsTaskDialogOpen(false);
-      setNewTask({ title: "", description: "", priority: "medium", dueDate: "" });
+  const createTaskMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_tasks").insert({
+        user_id: user.id,
+        client_id: id,
+        title: newTask.title,
+        due_date: newTask.dueDate || null,
+        show_in_deck: newTask.showInDeck,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-tasks", id] });
+      setNewTask(emptyTask);
       toast.success("Task added");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(error.message),
   });
 
-  const updateTaskMutation = trpc.task.update.useMutation({
-    onSuccess: () => utils.task.list.invalidate({ clientId }),
+  const updateTaskMutation = useMutation({
+    mutationFn: async (task: { id: string; is_complete: boolean; show_in_deck: boolean }) => {
+      const { error } = await supabase
+        .from("client_tasks")
+        .update({
+          is_complete: task.is_complete,
+          show_in_deck: task.show_in_deck,
+        })
+        .eq("id", task.id);
+      if (error) throw error;
+      await supabase
+        .from("clients")
+        .update({ last_touched_at: new Date().toISOString() })
+        .eq("id", id);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-tasks", id] }),
   });
 
-  const deleteTaskMutation = trpc.task.delete.useMutation({
-    onSuccess: () => {
-      utils.task.list.invalidate({ clientId });
-      toast.success("Task deleted");
+  const deleteTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const { error } = await supabase.from("client_tasks").delete().eq("id", taskId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-tasks", id] }),
+  });
+
+  const createBulletMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_bullets").insert({
+        user_id: user.id,
+        client_id: id,
+        body: newBullet,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-bullets", id] });
+      setNewBullet("");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deleteBulletMutation = useMutation({
+    mutationFn: async (bulletId: string) => {
+      const { error } = await supabase
+        .from("client_bullets")
+        .delete()
+        .eq("id", bulletId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-bullets", id] }),
+  });
+
+  const createBillMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_bill_links").insert({
+        user_id: user.id,
+        client_id: id,
+        label: newBill.label,
+        url: newBill.url,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-bills", id] });
+      setNewBill(emptyLink);
     },
   });
 
-  // Tag mutations
-  const addTagMutation = trpc.clients.addTag.useMutation({
-    onSuccess: () => utils.clients.getTags.invalidate({ clientId }),
+  const deleteBillMutation = useMutation({
+    mutationFn: async (billId: string) => {
+      const { error } = await supabase.from("client_bill_links").delete().eq("id", billId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-bills", id] }),
   });
 
-  const removeTagMutation = trpc.clients.removeTag.useMutation({
-    onSuccess: () => utils.clients.getTags.invalidate({ clientId }),
+  const createDocMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error("You must be signed in.");
+      const { error } = await supabase.from("client_doc_links").insert({
+        user_id: user.id,
+        client_id: id,
+        label: newDoc.label,
+        url: newDoc.url,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["client-docs", id] });
+      setNewDoc(emptyLink);
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: async (docId: string) => {
+      const { error } = await supabase.from("client_doc_links").delete().eq("id", docId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-docs", id] }),
   });
 
   if (isLoading) {
@@ -182,40 +384,29 @@ export default function ClientDetail() {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <h2 className="text-lg font-medium">Client not found</h2>
-        <Button variant="link" onClick={() => setLocation("/clients")}>
-          Back to clients
-        </Button>
+        <Button variant="link" onClick={() => setLocation("/clients")}>Back to clients</Button>
       </div>
     );
   }
-
-  const handleSave = () => {
-    if (editData) {
-      updateMutation.mutate({ id: clientId, ...editData });
-    }
-  };
 
   const startEditing = () => {
     setEditData({
       name: client.name,
       status: client.status,
       priority: client.priority,
-      industry: client.industry || "",
-      healthScore: client.healthScore || 50,
-      notes: client.notes || "",
+      industry: client.industry ?? "",
+      health_score: client.health_score ?? 50,
+      today_signal: client.today_signal ?? "",
     });
     setIsEditing(true);
   };
 
-  const availableTags = allTags?.filter(
-    tag => !clientTags?.some(ct => ct.tagId === tag.id)
-  );
+  const bulletCapReached = hasReachedBulletCap(bullets?.length ?? 0);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/clients")}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/clients")}> 
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
@@ -233,7 +424,7 @@ export default function ClientDetail() {
           {isEditing ? (
             <>
               <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
-              <Button onClick={handleSave} disabled={updateMutation.isPending}>
+              <Button onClick={() => updateClientMutation.mutate()} disabled={updateClientMutation.isPending}>
                 <Save className="h-4 w-4 mr-2" />
                 Save
               </Button>
@@ -257,7 +448,7 @@ export default function ClientDetail() {
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={() => deleteMutation.mutate({ id: clientId })}
+                      onClick={() => deleteClientMutation.mutate()}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
                       Delete
@@ -273,13 +464,15 @@ export default function ClientDetail() {
       <Tabs defaultValue="details" className="space-y-4">
         <TabsList>
           <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="contacts">Contacts ({contacts?.length || 0})</TabsTrigger>
-          <TabsTrigger value="notes">Notes ({notes?.length || 0})</TabsTrigger>
-          <TabsTrigger value="tasks">Tasks ({tasks?.length || 0})</TabsTrigger>
+          <TabsTrigger value="bullets">Bullets ({bullets?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="tasks">Tasks ({tasks?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="notes">Notes ({notes?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="contacts">Contacts ({contacts?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="bills">Bills ({bills?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="docs">Documents ({documents?.length ?? 0})</TabsTrigger>
         </TabsList>
 
-        {/* Details Tab */}
-        <TabsContent value="details" className="space-y-4">
+        <TabsContent value="details">
           <Card>
             <CardHeader>
               <CardTitle>Client Information</CardTitle>
@@ -291,7 +484,7 @@ export default function ClientDetail() {
                     <Label>Name</Label>
                     <Input
                       value={editData.name}
-                      onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                      onChange={(event) => setEditData({ ...editData, name: event.target.value })}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -299,7 +492,7 @@ export default function ClientDetail() {
                       <Label>Status</Label>
                       <Select
                         value={editData.status}
-                        onValueChange={(v) => setEditData({ ...editData, status: v })}
+                        onValueChange={(value) => setEditData({ ...editData, status: value })}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -313,7 +506,7 @@ export default function ClientDetail() {
                       <Label>Priority</Label>
                       <Select
                         value={editData.priority}
-                        onValueChange={(v) => setEditData({ ...editData, priority: v })}
+                        onValueChange={(value) => setEditData({ ...editData, priority: value })}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -328,26 +521,28 @@ export default function ClientDetail() {
                     <Label>Industry</Label>
                     <Input
                       value={editData.industry}
-                      onChange={(e) => setEditData({ ...editData, industry: e.target.value })}
+                      onChange={(event) => setEditData({ ...editData, industry: event.target.value })}
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label>Health Score ({editData.healthScore})</Label>
+                    <Label>Today signal</Label>
+                    <Textarea
+                      value={editData.today_signal}
+                      onChange={(event) => setEditData({ ...editData, today_signal: event.target.value })}
+                      rows={2}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Health Score ({editData.health_score})</Label>
                     <input
                       type="range"
                       min="0"
                       max="100"
-                      value={editData.healthScore}
-                      onChange={(e) => setEditData({ ...editData, healthScore: parseInt(e.target.value) })}
+                      value={editData.health_score}
+                      onChange={(event) =>
+                        setEditData({ ...editData, health_score: parseInt(event.target.value, 10) })
+                      }
                       className="w-full"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Notes</Label>
-                    <Textarea
-                      value={editData.notes}
-                      onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                      rows={4}
                     />
                   </div>
                 </>
@@ -360,424 +555,314 @@ export default function ClientDetail() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Health Score</p>
-                      <div className="flex items-center gap-2">
-                        <div className="health-bar flex-1">
-                          <div 
-                            className={`health-bar-fill ${
-                              (client.healthScore || 50) >= 70 ? "health-good" :
-                              (client.healthScore || 50) >= 40 ? "health-fair" : "health-poor"
-                            }`}
-                            style={{ width: `${client.healthScore || 50}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium">{client.healthScore || 50}%</span>
-                      </div>
+                      <p className="font-medium">{client.health_score ?? 50}%</p>
                     </div>
                   </div>
-                  {client.notes && (
-                    <div>
-                      <p className="text-sm text-muted-foreground">Notes</p>
-                      <p className="whitespace-pre-wrap">{client.notes}</p>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Last Contact</p>
-                      <p>{client.lastContactAt ? new Date(client.lastContactAt).toLocaleDateString() : "Never"}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Last Reviewed</p>
-                      <p>{client.lastReviewedAt ? new Date(client.lastReviewedAt).toLocaleDateString() : "Never"}</p>
-                    </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Today signal</p>
+                    <p className="whitespace-pre-wrap">{client.today_signal || "—"}</p>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* Tags */}
+        <TabsContent value="bullets" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Tags</CardTitle>
-              {availableTags && availableTags.length > 0 && (
-                <Select onValueChange={(tagId) => addTagMutation.mutate({ clientId, tagId: parseInt(tagId) })}>
-                  <SelectTrigger className="w-32">
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Tag
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTags.map(tag => (
-                      <SelectItem key={tag.id} value={tag.id.toString()}>
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
-                          {tag.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            <CardHeader>
+              <CardTitle>Key bullets</CardTitle>
             </CardHeader>
-            <CardContent>
-              {clientTags && clientTags.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {clientTags.map(ct => (
-                    <Badge
-                      key={ct.id}
-                      variant="secondary"
-                      className="gap-1 cursor-pointer hover:bg-destructive/10"
-                      onClick={() => removeTagMutation.mutate({ clientId, tagId: ct.tagId })}
-                    >
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ct.tagColor }} />
-                      {ct.tagName}
-                      <span className="text-muted-foreground ml-1">×</span>
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No tags assigned</p>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={newBullet}
+                  onChange={(event) => setNewBullet(event.target.value)}
+                  placeholder="Add a bullet"
+                  disabled={bulletCapReached}
+                />
+                <Button
+                  onClick={() => createBulletMutation.mutate()}
+                  disabled={!newBullet.trim() || bulletCapReached}
+                >
+                  Add
+                </Button>
+              </div>
+              {bulletCapReached && (
+                <p className="text-xs text-muted-foreground">
+                  Bullet cap reached (5 max).
+                </p>
               )}
+              <div className="space-y-2">
+                {bullets?.map((bullet) => (
+                  <div key={bullet.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <span>{bullet.body}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteBulletMutation.mutate(bullet.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                {bullets?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No bullets yet.</p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Contacts Tab */}
-        <TabsContent value="contacts" className="space-y-4">
-          <div className="flex justify-end">
-            <Dialog open={isContactDialogOpen} onOpenChange={setIsContactDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add Contact
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Contact</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label>Name *</Label>
-                    <Input
-                      value={newContact.name}
-                      onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Role</Label>
-                    <Input
-                      value={newContact.role}
-                      onChange={(e) => setNewContact({ ...newContact, role: e.target.value })}
-                      placeholder="e.g., CEO, Manager"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Email</Label>
-                      <Input
-                        type="email"
-                        value={newContact.email}
-                        onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Phone</Label>
-                      <Input
-                        value={newContact.phone}
-                        onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="primary"
-                      checked={newContact.isPrimary}
-                      onCheckedChange={(c) => setNewContact({ ...newContact, isPrimary: !!c })}
-                    />
-                    <Label htmlFor="primary">Primary contact</Label>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsContactDialogOpen(false)}>Cancel</Button>
-                  <Button
-                    onClick={() => createContactMutation.mutate({ clientId, ...newContact })}
-                    disabled={!newContact.name || createContactMutation.isPending}
-                  >
-                    Add Contact
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {contacts && contacts.length > 0 ? (
-            <div className="grid gap-3">
-              {contacts.map(contact => (
-                <Card key={contact.id}>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <User className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{contact.name}</p>
-                          {contact.isPrimary && (
-                            <Badge variant="secondary" className="text-xs">Primary</Badge>
-                          )}
-                        </div>
-                        {contact.role && (
-                          <p className="text-sm text-muted-foreground">{contact.role}</p>
-                        )}
-                        <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                          {contact.email && (
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              {contact.email}
-                            </span>
-                          )}
-                          {contact.phone && (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {contact.phone}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteContactMutation.mutate({ id: contact.id })}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card className="py-8">
-              <CardContent className="flex flex-col items-center text-center">
-                <User className="h-10 w-10 text-muted-foreground/50 mb-2" />
-                <p className="text-muted-foreground">No contacts yet</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Notes Tab */}
-        <TabsContent value="notes" className="space-y-4">
-          <div className="flex justify-end">
-            <Dialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add Note
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Note</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label>Title (optional)</Label>
-                    <Input
-                      value={newNote.title}
-                      onChange={(e) => setNewNote({ ...newNote, title: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Content *</Label>
-                    <Textarea
-                      value={newNote.content}
-                      onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
-                      rows={4}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
-                  <Button
-                    onClick={() => createNoteMutation.mutate({ clientId, ...newNote })}
-                    disabled={!newNote.content || createNoteMutation.isPending}
-                  >
-                    Add Note
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {notes && notes.length > 0 ? (
-            <ScrollArea className="h-[400px]">
-              <div className="grid gap-3 pr-4">
-                {notes.map(note => (
-                  <Card key={note.id} className={note.isPinned ? "border-primary/30" : ""}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          {note.title && (
-                            <p className="font-medium mb-1">{note.title}</p>
-                          )}
-                          <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {new Date(note.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => togglePinMutation.mutate({ id: note.id, isPinned: !note.isPinned })}
-                          >
-                            <Pin className={`h-4 w-4 ${note.isPinned ? "text-primary fill-primary" : "text-muted-foreground"}`} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteNoteMutation.mutate({ id: note.id })}
-                          >
-                            <Trash2 className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </ScrollArea>
-          ) : (
-            <Card className="py-8">
-              <CardContent className="flex flex-col items-center text-center">
-                <FileText className="h-10 w-10 text-muted-foreground/50 mb-2" />
-                <p className="text-muted-foreground">No notes yet</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Tasks Tab */}
         <TabsContent value="tasks" className="space-y-4">
-          <div className="flex justify-end">
-            <Dialog open={isTaskDialogOpen} onOpenChange={setIsTaskDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add Task
+          <Card>
+            <CardHeader>
+              <CardTitle>Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-[2fr,1fr,auto]">
+                <Input
+                  value={newTask.title}
+                  onChange={(event) => setNewTask({ ...newTask, title: event.target.value })}
+                  placeholder="Task title"
+                />
+                <Input
+                  type="date"
+                  value={newTask.dueDate}
+                  onChange={(event) => setNewTask({ ...newTask, dueDate: event.target.value })}
+                />
+                <Button onClick={() => createTaskMutation.mutate()} disabled={!newTask.title.trim()}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Task</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label>Title *</Label>
-                    <Input
-                      value={newTask.title}
-                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Description</Label>
-                    <Textarea
-                      value={newTask.description}
-                      onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                      rows={2}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select
-                        value={newTask.priority}
-                        onValueChange={(v) => setNewTask({ ...newTask, priority: v as any })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="low">Low</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Due Date</Label>
-                      <Input
-                        type="date"
-                        value={newTask.dueDate}
-                        onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsTaskDialogOpen(false)}>Cancel</Button>
-                  <Button
-                    onClick={() => createTaskMutation.mutate({ clientId, ...newTask })}
-                    disabled={!newTask.title || createTaskMutation.isPending}
-                  >
-                    Add Task
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {tasks && tasks.length > 0 ? (
-            <div className="grid gap-3">
-              {tasks.map(task => (
-                <Card key={task.id} className={task.status === "completed" ? "opacity-60" : ""}>
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <Checkbox
-                      checked={task.status === "completed"}
-                      onCheckedChange={(checked) => 
-                        updateTaskMutation.mutate({ 
-                          id: task.id, 
-                          status: checked ? "completed" : "pending" 
-                        })
-                      }
-                    />
-                    <div className="flex-1">
-                      <p className={`font-medium ${task.status === "completed" ? "line-through" : ""}`}>
-                        {task.title}
-                      </p>
-                      {task.description && (
-                        <p className="text-sm text-muted-foreground">{task.description}</p>
-                      )}
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="secondary" className={`priority-${task.priority}`}>
-                          {task.priority}
-                        </Badge>
-                        {task.dueDate && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(task.dueDate).toLocaleDateString()}
-                          </span>
-                        )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="show-in-deck"
+                  checked={newTask.showInDeck}
+                  onCheckedChange={(checked) => setNewTask({ ...newTask, showInDeck: !!checked })}
+                />
+                <Label htmlFor="show-in-deck">Show in Morning Deck</Label>
+              </div>
+              <ScrollArea className="h-64">
+                <div className="space-y-2">
+                  {tasks?.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={task.is_complete}
+                          onCheckedChange={(checked) =>
+                            updateTaskMutation.mutate({
+                              id: task.id,
+                              is_complete: !!checked,
+                              show_in_deck: task.show_in_deck,
+                            })
+                          }
+                        />
+                        <div>
+                          <p className={task.is_complete ? "line-through text-muted-foreground" : ""}>
+                            {task.title}
+                          </p>
+                          {task.due_date && (
+                            <p className="text-xs text-muted-foreground">
+                              Due {new Date(task.due_date).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={task.show_in_deck}
+                          onCheckedChange={(checked) =>
+                            updateTaskMutation.mutate({
+                              id: task.id,
+                              is_complete: task.is_complete,
+                              show_in_deck: !!checked,
+                            })
+                          }
+                        />
+                        <Button variant="ghost" size="sm" onClick={() => deleteTaskMutation.mutate(task.id)}>
+                          Remove
+                        </Button>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteTaskMutation.mutate({ id: task.id })}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  ))}
+                  {tasks?.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No tasks yet.</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="notes" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Notes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Textarea
+                value={newNote.body}
+                onChange={(event) => setNewNote({ body: event.target.value })}
+                rows={3}
+                placeholder="Write a note..."
+              />
+              <Button onClick={() => createNoteMutation.mutate()} disabled={!newNote.body.trim()}>
+                Add note
+              </Button>
+              <div className="space-y-2">
+                {notes?.map((note) => (
+                  <div key={note.id} className="rounded-md border p-3 space-y-2">
+                    <p className="whitespace-pre-wrap text-sm">{note.body}</p>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{new Date(note.created_at).toLocaleString()}</span>
+                      <Button variant="ghost" size="sm" onClick={() => deleteNoteMutation.mutate(note.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {notes?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No notes yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="contacts" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Contacts</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input
+                  value={newContact.name}
+                  onChange={(event) => setNewContact({ ...newContact, name: event.target.value })}
+                  placeholder="Name"
+                />
+                <Input
+                  value={newContact.role}
+                  onChange={(event) => setNewContact({ ...newContact, role: event.target.value })}
+                  placeholder="Role"
+                />
+                <Input
+                  type="email"
+                  value={newContact.email}
+                  onChange={(event) => setNewContact({ ...newContact, email: event.target.value })}
+                  placeholder="Email"
+                />
+                <Input
+                  value={newContact.phone}
+                  onChange={(event) => setNewContact({ ...newContact, phone: event.target.value })}
+                  placeholder="Phone"
+                />
+              </div>
+              <Button onClick={() => createContactMutation.mutate()} disabled={!newContact.name.trim()}>
+                Add contact
+              </Button>
+              <div className="space-y-2">
+                {contacts?.map((contact) => (
+                  <div key={contact.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <div>
+                      <p className="font-medium">{contact.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {contact.role || "Role"} · {contact.email || "No email"} · {contact.phone || "No phone"}
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => deleteContactMutation.mutate(contact.id)}>
+                      Remove
                     </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card className="py-8">
-              <CardContent className="flex flex-col items-center text-center">
-                <CheckSquare className="h-10 w-10 text-muted-foreground/50 mb-2" />
-                <p className="text-muted-foreground">No tasks yet</p>
-              </CardContent>
-            </Card>
-          )}
+                  </div>
+                ))}
+                {contacts?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No contacts yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="bills" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Bill links</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-[2fr,2fr,auto]">
+                <Input
+                  value={newBill.label}
+                  onChange={(event) => setNewBill({ ...newBill, label: event.target.value })}
+                  placeholder="Label"
+                />
+                <Input
+                  value={newBill.url}
+                  onChange={(event) => setNewBill({ ...newBill, url: event.target.value })}
+                  placeholder="https://"
+                />
+                <Button onClick={() => createBillMutation.mutate()} disabled={!newBill.label || !newBill.url}>
+                  Add
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {bills?.map((bill) => (
+                  <div key={bill.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <a href={bill.url} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
+                      {bill.label}
+                    </a>
+                    <Button variant="ghost" size="sm" onClick={() => deleteBillMutation.mutate(bill.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                {bills?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No bill links yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="docs" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Document links</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-[2fr,2fr,auto]">
+                <Input
+                  value={newDoc.label}
+                  onChange={(event) => setNewDoc({ ...newDoc, label: event.target.value })}
+                  placeholder="Label"
+                />
+                <Input
+                  value={newDoc.url}
+                  onChange={(event) => setNewDoc({ ...newDoc, url: event.target.value })}
+                  placeholder="https://"
+                />
+                <Button onClick={() => createDocMutation.mutate()} disabled={!newDoc.label || !newDoc.url}>
+                  Add
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {documents?.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <a href={doc.url} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
+                      {doc.label}
+                    </a>
+                    <Button variant="ghost" size="sm" onClick={() => deleteDocMutation.mutate(doc.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                {documents?.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No documents yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
