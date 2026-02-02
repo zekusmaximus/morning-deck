@@ -40,9 +40,6 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
 
-          if (id.includes("/react/") || id.includes("/react-dom/")) {
-            return "react";
-          }
           if (id.includes("/@radix-ui/")) {
             return "radix";
           }
