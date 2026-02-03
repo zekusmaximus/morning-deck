@@ -14,6 +14,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const emailRedirectTo = `${window.location.origin}/login`;
 
   useEffect(() => {
     if (user) {
@@ -42,6 +43,9 @@ export default function Login() {
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo,
+      },
     });
     setLoading(false);
 
@@ -51,6 +55,30 @@ export default function Login() {
     }
 
     toast.success("Check your email to confirm your account.");
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      toast.error("Enter your email first.");
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: {
+        emailRedirectTo,
+      },
+    });
+    setLoading(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Confirmation email resent.");
   };
 
   return (
@@ -89,6 +117,13 @@ export default function Login() {
               disabled={loading}
             >
               Create account
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={handleResendConfirmation}
+              disabled={loading}
+            >
+              Resend confirmation email
             </Button>
           </div>
         </CardContent>
