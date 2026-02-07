@@ -140,7 +140,7 @@ export default function MorningDeck() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_tasks")
-        .select("id,title,is_complete,show_in_deck")
+        .select("id,title,is_complete,show_in_deck,due_date")
         .eq("client_id", currentItem?.client_id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -502,7 +502,14 @@ export default function MorningDeck() {
             </div>
             <div className="mt-2 space-y-1 text-sm text-muted-foreground">
               {taskSnippet.map((task) => (
-                <div key={task.id}>• {task.title}</div>
+                <div key={task.id}>
+                  • {task.title}
+                  {task.due_date && (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      — {new Date(task.due_date).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
               ))}
               {taskSnippet.length === 0 && <div>No deck tasks.</div>}
               {extraTasks > 0 && <div>+{extraTasks} more</div>}
