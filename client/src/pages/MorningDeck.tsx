@@ -36,6 +36,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ensureSafeUrl } from "@/lib/safe-url";
 
 export default function MorningDeck() {
   const { user } = useAuth();
@@ -597,7 +598,7 @@ export default function MorningDeck() {
                     {(bills ?? []).map((bill) => (
                       <a
                         key={bill.id}
-                        href={bill.url}
+                        href={ensureSafeUrl(bill.url)}
                         className="flex items-center gap-2 text-sm text-primary underline"
                         target="_blank"
                         rel="noreferrer"
@@ -620,7 +621,7 @@ export default function MorningDeck() {
                     {(documents ?? []).map((doc) => (
                       <a
                         key={doc.id}
-                        href={doc.url}
+                        href={ensureSafeUrl(doc.url)}
                         className="flex items-center gap-2 text-sm text-primary underline"
                         target="_blank"
                         rel="noreferrer"
