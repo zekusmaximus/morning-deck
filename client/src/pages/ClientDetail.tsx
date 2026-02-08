@@ -34,6 +34,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
+import { ensureSafeUrl } from "@/lib/safe-url";
 
 const emptyContact = { name: "", role: "", email: "", phone: "" };
 const emptyTask = { title: "", dueDate: "", showInDeck: true };
@@ -810,7 +811,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
               <div className="space-y-2">
                 {bills?.map((bill) => (
                   <div key={bill.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                    <a href={bill.url} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
+                    <a href={ensureSafeUrl(bill.url)} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
                       {bill.label}
                     </a>
                     <Button variant="ghost" size="sm" onClick={() => deleteBillMutation.mutate(bill.id)}>
@@ -850,7 +851,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
               <div className="space-y-2">
                 {documents?.map((doc) => (
                   <div key={doc.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                    <a href={doc.url} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
+                    <a href={ensureSafeUrl(doc.url)} className="text-sm text-primary underline" target="_blank" rel="noreferrer">
                       {doc.label}
                     </a>
                     <Button variant="ghost" size="sm" onClick={() => deleteDocMutation.mutate(doc.id)}>
