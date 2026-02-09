@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { normalizeClientBullets } from "./_core/morningDeck";
+import { normalizeClientBullets, getSafeClientLogData } from "./_core/morningDeck";
 import { z } from "zod";
 import * as db from "./db";
 
@@ -80,7 +80,7 @@ const clientRouter = router({
         entityType: "client",
         entityId: id,
         action: "updated",
-        details: JSON.stringify(data),
+        details: JSON.stringify(getSafeClientLogData(data)),
       });
       
       return { success: true };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClientBullets, sortClientsCaseInsensitive } from "./morningDeck";
+import { normalizeClientBullets, sortClientsCaseInsensitive, getSafeClientLogData } from "./morningDeck";
 
 describe("morning deck helpers", () => {
   it("caps client bullets to five lines and trims empties", () => {
@@ -25,5 +25,51 @@ describe("morning deck helpers", () => {
       "beta",
       "gamma",
     ]);
+  });
+});
+
+describe("getSafeClientLogData", () => {
+  it("should preserve safe fields", () => {
+    const data = {
+      name: "Test Client",
+      status: "active",
+      priority: "high",
+      industry: "Tech",
+      healthScore: 80,
+    };
+
+    expect(getSafeClientLogData(data)).toEqual(data);
+  });
+
+  it("should remove sensitive fields", () => {
+    const data = {
+      name: "Test Client",
+      revenue: "1000000",
+      notes: "Secret notes",
+    };
+
+    expect(getSafeClientLogData(data)).toEqual({
+      name: "Test Client",
+    });
+  });
+
+  it("should handle mixed safe and unsafe fields", () => {
+    const data = {
+      name: "Test Client",
+      revenue: "1000000",
+      status: "active",
+      notes: "Secret notes",
+      priority: "medium",
+    };
+
+    expect(getSafeClientLogData(data)).toEqual({
+      name: "Test Client",
+      status: "active",
+      priority: "medium",
+    });
+  });
+
+  it("should handle empty object", () => {
+    expect(getSafeClientLogData({})).toEqual({});
   });
 });

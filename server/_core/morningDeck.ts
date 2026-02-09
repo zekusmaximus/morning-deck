@@ -27,3 +27,16 @@ export function sortClientsCaseInsensitive<T extends { name: string }>(clients: 
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
   );
 }
+
+export function getSafeClientLogData(data: Record<string, unknown>): Record<string, unknown> {
+  const safeKeys = ["name", "status", "priority", "industry", "healthScore"];
+  const safeData: Record<string, unknown> = {};
+
+  for (const key of safeKeys) {
+    if (key in data) {
+      safeData[key] = data[key];
+    }
+  }
+
+  return safeData;
+}
