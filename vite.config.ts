@@ -23,6 +23,8 @@ const plugins = [
 export default defineConfig({
   plugins,
   resolve: {
+    conditions: ["browser", "module", "import", "default"],
+    mainFields: ["browser", "module", "jsnext:main", "jsnext"],
     alias: [
       {
         find: /^react$/,
@@ -97,7 +99,7 @@ export default defineConfig({
           if (id.includes("/zod/")) {
             return "zod";
           }
-          if (id.includes("/@tanstack/")) {
+          if (id.includes("/@tanstack/") || id.includes("/@trpc/")) {
             return "tanstack";
           }
 
