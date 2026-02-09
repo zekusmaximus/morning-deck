@@ -23,11 +23,37 @@ const plugins = [
 export default defineConfig({
   plugins,
   resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
-    },
+    alias: [
+      {
+        find: /^react$/,
+        replacement: path.resolve(import.meta.dirname, "node_modules", "react", "index.js"),
+      },
+      {
+        find: /^react\/jsx-runtime$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          "node_modules",
+          "react",
+          "jsx-runtime.js"
+        ),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: path.resolve(import.meta.dirname, "node_modules", "react-dom", "index.js"),
+      },
+      {
+        find: /^react-dom\/client$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          "node_modules",
+          "react-dom",
+          "client.js"
+        ),
+      },
+      { find: "@", replacement: path.resolve(import.meta.dirname, "client", "src") },
+      { find: "@shared", replacement: path.resolve(import.meta.dirname, "shared") },
+      { find: "@assets", replacement: path.resolve(import.meta.dirname, "attached_assets") },
+    ],
     dedupe: ["react", "react-dom", "react/jsx-runtime"],
   },
   optimizeDeps: {
