@@ -35,7 +35,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
 import { ensureSafeUrl } from "@/lib/safe-url";
-import { trpc } from "@/_core/trpc";
 
 const emptyContact = { name: "", role: "", email: "", phone: "" };
 const emptyTask = { title: "", dueDate: "", showInDeck: true };
@@ -175,13 +174,17 @@ export default function ClientDetail({ id }: ClientDetailProps) {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const deleteClientMutation = trpc.clients.delete.useMutation({
+  const deleteClientMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("clients").delete().eq("id", id);
+      if (error) throw error;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       setLocation("/clients");
       toast.success("Client deleted");
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const createContactMutation = useMutation({
@@ -448,7 +451,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={() => deleteClientMutation.mutate({ id: parseInt(id) })}
+                      onClick={() => deleteClientMutation.mutate()}
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
                       Delete
