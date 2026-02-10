@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getNyDateKey } from "@/lib/date";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -6,21 +7,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  Users, 
-  CheckSquare, 
-  AlertTriangle, 
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Users,
+  AlertTriangle,
   TrendingUp,
   Sunrise,
   ArrowRight,
   Clock,
-  Target
+  Target,
+  ChevronDown
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 
 export default function Home() {
   const [, setLocation] = useLocation();
   const { user, loading } = useAuth();
+  const queryClient = useQueryClient();
+  const [tasksOpen, setTasksOpen] = useState(false);
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     enabled: !!user,
@@ -31,8 +38,9 @@ export default function Home() {
           supabase.from("clients").select("id,status,priority,last_touched_at"),
           supabase
             .from("client_tasks")
-            .select("id,is_complete,due_date")
-            .eq("is_complete", false),
+            .select("id,title,is_complete,due_date,client_id,clients(name)")
+            .eq("is_complete", false)
+            .order("due_date", { ascending: true, nullsFirst: false }),
         ]);
 
       if (clientsError) throw clientsError;
@@ -93,7 +101,22 @@ export default function Home() {
         pendingTasks: tasks?.length ?? 0,
         overdueTasks: overdueTasks.length,
         todayReviewProgress,
+        taskList: tasks ?? [],
       };
+    },
+  });
+
+  const completeTaskMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const { error } = await supabase
+        .from("client_tasks")
+        .update({ is_complete: true })
+        .eq("id", taskId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      toast.success("Task completed");
     },
   });
 
@@ -193,23 +216,63 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <Card className="card-hover">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending Tasks
-            </CardTitle>
-            <CheckSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.pendingTasks ?? 0}</div>
-            {(stats?.overdueTasks ?? 0) > 0 && (
-              <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                {stats?.overdueTasks} overdue
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <Collapsible open={tasksOpen} onOpenChange={setTasksOpen}>
+          <Card className="card-hover">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 cursor-pointer select-none">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Pending Tasks
+                </CardTitle>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${tasksOpen ? "rotate-180" : ""}`} />
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.pendingTasks ?? 0}</div>
+              {(stats?.overdueTasks ?? 0) > 0 && (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  {stats?.overdueTasks} overdue
+                </p>
+              )}
+              <CollapsibleContent>
+                {(stats?.taskList?.length ?? 0) > 0 ? (
+                  <ul className="mt-3 space-y-2 border-t pt-3">
+                    {stats!.taskList.map((task) => {
+                      const isOverdue = task.due_date && new Date(task.due_date) < new Date();
+                      const clientName = (task.clients as any)?.name;
+                      return (
+                        <li key={task.id} className="flex items-start gap-2 text-sm">
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={false}
+                            onCheckedChange={() => completeTaskMutation.mutate(task.id)}
+                            disabled={completeTaskMutation.isPending}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="block truncate">{task.title}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {clientName && <>{clientName} &middot; </>}
+                              {task.due_date ? (
+                                <span className={isOverdue ? "text-destructive font-medium" : ""}>
+                                  {isOverdue ? "Overdue: " : "Due: "}
+                                  {new Date(task.due_date).toLocaleDateString()}
+                                </span>
+                              ) : (
+                                "No due date"
+                              )}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">No pending tasks</p>
+                )}
+              </CollapsibleContent>
+            </CardContent>
+          </Card>
+        </Collapsible>
 
         <Card className="card-hover">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -293,7 +356,7 @@ export default function Home() {
                 className="w-full gap-2"
               >
                 <Sunrise className="h-4 w-4" />
-                {stats?.todayReviewCompleted ? "View Today's Review" : "Start Today's Review"}
+                {stats?.todayReviewProgress ? "View Today's Review" : "Start Today's Review"}
               </Button>
             </div>
           </CardContent>

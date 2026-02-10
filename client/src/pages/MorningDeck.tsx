@@ -118,7 +118,7 @@ export default function MorningDeck() {
   });
 
   const currentItem = runClients?.[currentIndex];
-  const currentClient = currentItem?.client;
+  const currentClient = currentItem?.client as Record<string, any> | undefined;
 
   const { data: bullets } = useQuery({
     queryKey: ["client-bullets", currentItem?.client_id],
@@ -409,7 +409,7 @@ export default function MorningDeck() {
                 <h3 className="text-sm font-semibold">Flagged clients</h3>
                 {flaggedClients.map((item) => (
                   <div key={item.id} className="rounded-md border p-3">
-                    <p className="font-medium">{item.client?.name}</p>
+                    <p className="font-medium">{(item.client as any)?.name}</p>
                     {item.quick_note && (
                       <p className="text-sm text-muted-foreground">{item.quick_note}</p>
                     )}
