@@ -12,7 +12,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import {
   Users,
   AlertTriangle,
-  TrendingUp,
   Sunrise,
   ArrowRight,
   Clock,
@@ -28,6 +27,7 @@ export default function Home() {
   const { user, loading } = useAuth();
   const queryClient = useQueryClient();
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -36,7 +36,7 @@ export default function Home() {
       const todayKey = getNyDateKey();
       const [{ data: clients, error: clientsError }, { data: tasks, error: tasksError }] =
         await Promise.all([
-          supabase.from("clients").select("id,status,priority,last_touched_at"),
+          supabase.from("clients").select("id,name,status,priority,last_contact_made_at"),
           supabase
             .from("client_tasks")
             .select("id,title,is_complete,due_date,client_id,clients(name)")
@@ -50,16 +50,12 @@ export default function Home() {
       const activeClients = clients?.filter((client) => client.status === "active") ?? [];
       const inactiveClients = clients?.filter((client) => client.status === "inactive") ?? [];
       const prospectClients = clients?.filter((client) => client.status === "prospect") ?? [];
-      const highPriorityClients =
-        clients?.filter((client) => client.priority === "high") ?? [];
       const now = new Date();
-      const needsAttention =
-        clients?.filter((client) => {
-          if (!client.last_touched_at) return false;
-          const diff =
-            now.getTime() - new Date(client.last_touched_at).getTime();
-          return diff >= 7 * 24 * 60 * 60 * 1000;
-        }) ?? [];
+      const needsAttention = activeClients.filter((client) => {
+        if (!client.last_contact_made_at) return true;
+        const diff = now.getTime() - new Date(client.last_contact_made_at).getTime();
+        return diff >= 7 * 24 * 60 * 60 * 1000;
+      });
       const overdueTasks =
         tasks?.filter(
           (task) =>
@@ -108,8 +104,8 @@ export default function Home() {
         activeClients: activeClients.length,
         inactiveClients: inactiveClients.length,
         prospectClients: prospectClients.length,
-        highPriorityClients: highPriorityClients.length,
         needsAttention: needsAttention.length,
+        needsContactList: needsAttention.map((c) => ({ id: c.id, name: c.name })),
         pendingTasks: tasks?.length ?? 0,
         overdueTasks: overdueTasks.length,
         todayReviewProgress,
@@ -140,8 +136,8 @@ export default function Home() {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-72" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          {[...Array(5)].map((_, i) => (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
@@ -213,7 +209,7 @@ export default function Home() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="card-hover">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -287,35 +283,38 @@ export default function Home() {
           </Card>
         </Collapsible>
 
-        <Card className="card-hover">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              High Priority
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.highPriorityClients ?? 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              clients need attention
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="card-hover">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Needs Contact
-            </CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.needsAttention ?? 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              no contact in 7+ days
-            </p>
-          </CardContent>
-        </Card>
+        <Collapsible open={contactsOpen} onOpenChange={setContactsOpen}>
+          <Card className="card-hover">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 cursor-pointer select-none">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Needs Contact
+                </CardTitle>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${contactsOpen ? "rotate-180" : ""}`} />
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats?.needsAttention ?? 0}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                no contact in 7+ days
+              </p>
+              <CollapsibleContent>
+                {(stats?.needsContactList?.length ?? 0) > 0 ? (
+                  <ul className="mt-3 space-y-2 border-t pt-3">
+                    {stats!.needsContactList.map((client) => (
+                      <li key={client.id} className="flex items-center gap-2 text-sm">
+                        <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="truncate">{client.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">All clients contacted recently</p>
+                )}
+              </CollapsibleContent>
+            </CardContent>
+          </Card>
+        </Collapsible>
 
         <Card className="card-hover">
           <CardHeader className="flex flex-row items-center justify-between pb-2">

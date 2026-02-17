@@ -330,9 +330,10 @@ export default function MorningDeck() {
         .eq("id", itemId);
       if (error) throw error;
       if (checked) {
+        const now = new Date().toISOString();
         await supabase
           .from("clients")
-          .update({ last_touched_at: new Date().toISOString() })
+          .update({ last_touched_at: now, last_contact_made_at: now })
           .eq("id", clientId);
       }
     },
