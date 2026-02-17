@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getNyDateKey, daysSince } from "@/lib/date";
-import { sortByNameCaseInsensitive } from "@/lib/clients";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -78,11 +77,19 @@ export default function MorningDeck() {
       if (!runClients || runClients.length === 0) {
         const { data: clients, error: clientsError } = await supabase
           .from("clients")
-          .select("id,name")
+          .select("id,name,priority,last_touched_at")
           .eq("status", "active");
         if (clientsError) throw clientsError;
 
-        const sorted = sortByNameCaseInsensitive(clients ?? []);
+        const priorityWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
+        const urgencyScore = (c: { priority?: string | null; last_touched_at?: string | null }) => {
+          const weight = priorityWeight[c.priority ?? "low"] ?? 1;
+          const days = c.last_touched_at
+            ? Math.floor((Date.now() - new Date(c.last_touched_at).getTime()) / 86_400_000)
+            : 999;
+          return weight * days;
+        };
+        const sorted = [...(clients ?? [])].sort((a, b) => urgencyScore(b) - urgencyScore(a));
         if (sorted.length > 0) {
           const payload = sorted.map((client, index) => ({
             user_id: user.id,
@@ -373,6 +380,34 @@ export default function MorningDeck() {
     moveToNext();
   };
 
+  // Keep latest handlers in refs so the keydown listener never goes stale
+  const handleReviewRef = useRef(handleReview);
+  handleReviewRef.current = handleReview;
+
+  const currentItemRef = useRef(currentItem);
+  currentItemRef.current = currentItem;
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!currentItemRef.current) return;
+      const tag = (e.target as HTMLElement).tagName.toLowerCase();
+      if (tag === "textarea" || tag === "input") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        handleReviewRef.current();
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setShowFlagDialog(true);
+      } else if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        setIsExpanded((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []); // registered once; reads latest values via refs
+
   if (runLoading || itemsLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -469,15 +504,28 @@ export default function MorningDeck() {
           <h1 className="text-2xl font-semibold tracking-tight">Morning Deck</h1>
           <p className="text-muted-foreground">{todayKey}</p>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {currentIndex + 1} / {runClients?.length ?? 0}
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span className="hidden md:flex items-center gap-1.5">
+            <kbd className="rounded border px-1 py-0.5 text-xs font-mono bg-muted">R</kbd> reviewed
+            <kbd className="rounded border px-1 py-0.5 text-xs font-mono bg-muted ml-1">F</kbd> flag
+            <kbd className="rounded border px-1 py-0.5 text-xs font-mono bg-muted ml-1">E</kbd> expand
+          </span>
+          <span>{currentIndex + 1} / {runClients?.length ?? 0}</span>
         </div>
       </div>
 
       <Card className="relative">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-xl">{currentClient.name}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-xl">{currentClient.name}</CardTitle>
+              {currentClient.priority === "high" && (
+                <Badge variant="destructive" className="text-xs">High</Badge>
+              )}
+              {currentClient.priority === "medium" && (
+                <Badge variant="secondary" className="text-xs">Medium</Badge>
+              )}
+            </div>
             <Badge className={lastTouchedClass}>{lastTouchedLabel}</Badge>
           </div>
           {currentClient.today_signal && (

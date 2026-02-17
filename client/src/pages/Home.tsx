@@ -17,7 +17,8 @@ import {
   ArrowRight,
   Clock,
   Target,
-  ChevronDown
+  ChevronDown,
+  Flame,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -66,30 +67,41 @@ export default function Home() {
             new Date(task.due_date).getTime() < now.getTime()
         ) ?? [];
 
-      const { data: dailyRun } = await supabase
+      // Fetch last 60 days of runs with outcomes to compute today's progress + streak
+      const { data: recentRuns } = await supabase
         .from("daily_runs")
-        .select("id")
-        .eq("run_date", todayKey)
-        .maybeSingle();
+        .select("id,run_date,daily_run_clients(outcome)")
+        .order("run_date", { ascending: false })
+        .limit(60);
 
       let todayReviewProgress = null as
         | { reviewed: number; flagged: number; total: number }
         | null;
 
-      if (dailyRun?.id) {
-        const { data: dailyRunClients } = await supabase
-          .from("daily_run_clients")
-          .select("outcome")
-          .eq("daily_run_id", dailyRun.id);
+      const todayRun = recentRuns?.find((r) => r.run_date === todayKey);
+      if (todayRun) {
+        const items = todayRun.daily_run_clients as Array<{ outcome: string | null }>;
+        const reviewed = items.filter((i) => i.outcome === "reviewed").length;
+        const flagged = items.filter((i) => i.outcome === "flagged").length;
+        todayReviewProgress = { reviewed, flagged, total: items.length };
+      }
 
-        const reviewed =
-          dailyRunClients?.filter((item) => item.outcome === "reviewed")
-            .length ?? 0;
-        const flagged =
-          dailyRunClients?.filter((item) => item.outcome === "flagged").length ??
-          0;
-        const total = dailyRunClients?.length ?? 0;
-        todayReviewProgress = { reviewed, flagged, total };
+      // Compute consecutive-day streak (days where deck was fully completed)
+      let streak = 0;
+      const msPerDay = 86_400_000;
+      const todayItems = todayRun?.daily_run_clients as Array<{ outcome: string | null }> | undefined;
+      const todayComplete = !!(todayItems?.length && todayItems.every((i) => i.outcome));
+      // Start from today if today is done, otherwise start checking from yesterday
+      let checkDate = new Date(todayKey);
+      if (!todayComplete) checkDate = new Date(checkDate.getTime() - msPerDay);
+      for (const run of recentRuns ?? []) {
+        if (run.run_date === todayKey && !todayComplete) continue; // skip incomplete today
+        const runDate = new Date(run.run_date);
+        if (runDate.getTime() !== checkDate.getTime()) break; // gap in dates
+        const items = run.daily_run_clients as Array<{ outcome: string | null }>;
+        if (!items.length || !items.every((i) => i.outcome)) break;
+        streak++;
+        checkDate = new Date(checkDate.getTime() - msPerDay);
       }
 
       return {
@@ -101,6 +113,7 @@ export default function Home() {
         pendingTasks: tasks?.length ?? 0,
         overdueTasks: overdueTasks.length,
         todayReviewProgress,
+        streak,
         taskList: tasks ?? [],
       };
     },
@@ -127,8 +140,8 @@ export default function Home() {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-72" />
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
@@ -200,7 +213,7 @@ export default function Home() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="card-hover">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -300,6 +313,21 @@ export default function Home() {
             <div className="text-2xl font-bold">{stats?.needsAttention ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">
               no contact in 7+ days
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="card-hover">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Review Streak
+            </CardTitle>
+            <Flame className={`h-4 w-4 ${(stats?.streak ?? 0) > 0 ? "text-orange-500" : "text-muted-foreground"}`} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.streak ?? 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {(stats?.streak ?? 0) === 1 ? "day in a row" : "days in a row"}
             </p>
           </CardContent>
         </Card>
