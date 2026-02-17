@@ -1,13 +1,11 @@
-export const getNyDateKey = (date: Date = new Date()) => {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+const NY_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
-  return formatter.format(date);
-};
+export const getNyDateKey = (date: Date = new Date()) => NY_DATE_FORMATTER.format(date);
 
 export const daysSince = (dateIso?: string | null) => {
   if (!dateIso) return null;

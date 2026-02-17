@@ -58,12 +58,20 @@ export default function ClientDetail({ id }: ClientDetailProps) {
   const [newDoc, setNewDoc] = useState(emptyLink);
   const [newBullet, setNewBullet] = useState("");
 
-  const { data: client, isLoading } = useQuery({
+  const { data: clientData, isLoading } = useQuery({
     queryKey: ["client", id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("clients")
-        .select("*")
+        .select(`
+          *,
+          client_contacts (*),
+          client_notes (*),
+          client_tasks (*),
+          client_bullets (*),
+          client_bill_links (*),
+          client_doc_links (*)
+        `)
         .eq("id", id)
         .maybeSingle();
       if (error) throw error;
@@ -71,83 +79,16 @@ export default function ClientDetail({ id }: ClientDetailProps) {
     },
   });
 
-  const { data: contacts } = useQuery({
-    queryKey: ["client-contacts", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_contacts")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const byNewest = (a: { created_at: string }, b: { created_at: string }) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 
-  const { data: notes } = useQuery({
-    queryKey: ["client-notes", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_notes")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: tasks } = useQuery({
-    queryKey: ["client-tasks", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_tasks")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: bullets } = useQuery({
-    queryKey: ["client-bullets", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_bullets")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: bills } = useQuery({
-    queryKey: ["client-bills", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_bill_links")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: documents } = useQuery({
-    queryKey: ["client-docs", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("client_doc_links")
-        .select("*")
-        .eq("client_id", id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const client    = clientData;
+  const contacts  = [...(clientData?.client_contacts   ?? [])].sort(byNewest);
+  const notes     = [...(clientData?.client_notes      ?? [])].sort(byNewest);
+  const tasks     = [...(clientData?.client_tasks      ?? [])].sort(byNewest);
+  const bullets   = [...(clientData?.client_bullets    ?? [])].sort(byNewest);
+  const bills     = [...(clientData?.client_bill_links ?? [])].sort(byNewest);
+  const documents = [...(clientData?.client_doc_links  ?? [])].sort(byNewest);
 
   const updateClientMutation = useMutation({
     mutationFn: async () => {
@@ -201,7 +142,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-contacts", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewContact(emptyContact);
       toast.success("Contact added");
     },
@@ -216,7 +157,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
         .eq("id", contactId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-contacts", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const createNoteMutation = useMutation({
@@ -234,7 +175,6 @@ export default function ClientDetail({ id }: ClientDetailProps) {
         .eq("id", id);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-notes", id] });
       await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewNote(emptyNote);
       toast.success("Note added");
@@ -247,7 +187,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       const { error } = await supabase.from("client_notes").delete().eq("id", noteId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-notes", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const createTaskMutation = useMutation({
@@ -263,7 +203,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-tasks", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewTask(emptyTask);
       toast.success("Task added");
     },
@@ -285,7 +225,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
         .update({ last_touched_at: new Date().toISOString() })
         .eq("id", id);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-tasks", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const deleteTaskMutation = useMutation({
@@ -293,7 +233,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       const { error } = await supabase.from("client_tasks").delete().eq("id", taskId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-tasks", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const createBulletMutation = useMutation({
@@ -307,7 +247,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-bullets", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewBullet("");
     },
     onError: (error: Error) => toast.error(error.message),
@@ -321,7 +261,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
         .eq("id", bulletId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-bullets", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const createBillMutation = useMutation({
@@ -336,7 +276,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-bills", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewBill(emptyLink);
     },
   });
@@ -346,7 +286,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       const { error } = await supabase.from("client_bill_links").delete().eq("id", billId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-bills", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   const createDocMutation = useMutation({
@@ -361,7 +301,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["client-docs", id] });
+      await queryClient.invalidateQueries({ queryKey: ["client", id] });
       setNewDoc(emptyLink);
     },
   });
@@ -371,7 +311,7 @@ export default function ClientDetail({ id }: ClientDetailProps) {
       const { error } = await supabase.from("client_doc_links").delete().eq("id", docId);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-docs", id] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client", id] }),
   });
 
   if (isLoading) {
