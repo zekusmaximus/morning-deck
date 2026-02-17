@@ -115,7 +115,7 @@ export default function MorningDeck() {
       const { data, error } = await supabase
         .from("daily_run_clients")
         .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,client:clients(*)"
+          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients(*)"
         )
         .eq("daily_run_id", dailyRun?.id)
         .order("ordinal_index", { ascending: true });
@@ -312,6 +312,35 @@ export default function MorningDeck() {
         .eq("id", currentItem.client_id);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-notes"] }),
+  });
+
+  const contactMadeMutation = useMutation({
+    mutationFn: async ({
+      itemId,
+      clientId,
+      checked,
+    }: {
+      itemId: string;
+      clientId: string;
+      checked: boolean;
+    }) => {
+      const { error } = await supabase
+        .from("daily_run_clients")
+        .update({ contact_made: checked })
+        .eq("id", itemId);
+      if (error) throw error;
+      if (checked) {
+        const now = new Date().toISOString();
+        await supabase
+          .from("clients")
+          .update({ last_touched_at: now, last_contact_made_at: now })
+          .eq("id", clientId);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["daily-run-clients"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    },
   });
 
   const saveFocusMutation = useMutation({
@@ -563,6 +592,26 @@ export default function MorningDeck() {
               {taskSnippet.length === 0 && <div>No deck tasks.</div>}
               {extraTasks > 0 && <div>+{extraTasks} more</div>}
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="contact-made"
+              checked={!!currentItem.contact_made}
+              onCheckedChange={(checked) =>
+                contactMadeMutation.mutate({
+                  itemId: currentItem.id,
+                  clientId: currentItem.client_id,
+                  checked: !!checked,
+                })
+              }
+            />
+            <label
+              htmlFor="contact-made"
+              className="text-sm font-medium cursor-pointer select-none"
+            >
+              Contact made?
+            </label>
           </div>
 
           <div className="flex flex-wrap gap-2">
