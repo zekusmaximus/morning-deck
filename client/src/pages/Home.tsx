@@ -36,7 +36,7 @@ export default function Home() {
       const todayKey = getNyDateKey();
       const [{ data: clients, error: clientsError }, { data: tasks, error: tasksError }] =
         await Promise.all([
-          supabase.from("clients").select("id,name,status,priority,last_touched_at").eq("user_id", user!.id),
+          supabase.from("clients").select("id,name,status,priority,last_touched_at"),
           supabase
             .from("client_tasks")
             .select("id,title,is_complete,due_date,client_id,clients(name)")
