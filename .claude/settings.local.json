@@ -3,7 +3,14 @@
     "allow": [
       "Bash(npm install:*)",
       "Read(//c/**)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx vitest:*)",
+      "Bash(node -e:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(npm --version:*)",
+      "Bash(pnpm add:*)"
     ]
   }
 }

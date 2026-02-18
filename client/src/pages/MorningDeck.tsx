@@ -53,30 +53,24 @@ export default function MorningDeck() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return null;
-      let { data: run, error } = await supabase
-         .from("daily_runs")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("run_date", todayKey)
-        .maybeSingle();
+
+      // Get-or-create today's run in a single round-trip via upsert
+      const { data: run, error } = await supabase
+        .from("daily_runs")
+        .upsert(
+          { user_id: user.id, run_date: todayKey },
+          { onConflict: "user_id,run_date" }
+        )
+        .select("id")
+        .single();
       if (error) throw error;
 
-      if (!run) {
-        const { data: created, error: insertError } = await supabase
-          .from("daily_runs")
-          .insert({ user_id: user.id, run_date: todayKey })
-          .select()
-          .single();
-        if (insertError) throw insertError;
-        run = created;
-      }
-
-      // Parallel: check if run is already populated AND pre-fetch active clients
-      const [{ count: existingCount }, { data: clients, error: clientsError }] =
+      // Fetch existing deck client IDs + all active clients in parallel
+      const [{ data: existingEntries }, { data: activeClients, error: clientsError }] =
         await Promise.all([
           supabase
             .from("daily_run_clients")
-            .select("*", { count: "exact", head: true })
+            .select("client_id")
             .eq("daily_run_id", run.id),
           supabase
             .from("clients")
@@ -84,10 +78,15 @@ export default function MorningDeck() {
             .eq("user_id", user.id)
             .eq("status", "active"),
         ]);
+      if (clientsError) throw clientsError;
 
-      if (!existingCount) {
-        if (clientsError) throw clientsError;
+      // Sync: add any active clients not yet in today's deck
+      const existingIds = new Set(
+        (existingEntries ?? []).map((e) => e.client_id)
+      );
+      const missing = (activeClients ?? []).filter((c) => !existingIds.has(c.id));
 
+      if (missing.length > 0) {
         const priorityWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
         const urgencyScore = (c: { priority?: string | null; last_touched_at?: string | null }) => {
           const weight = priorityWeight[c.priority ?? "low"] ?? 1;
@@ -96,19 +95,18 @@ export default function MorningDeck() {
             : 999;
           return weight * days;
         };
-        const sorted = [...(clients ?? [])].sort((a, b) => urgencyScore(b) - urgencyScore(a));
-        if (sorted.length > 0) {
-          const payload = sorted.map((client, index) => ({
-            user_id: user.id,
-            daily_run_id: run.id,
-            client_id: client.id,
-            ordinal_index: index + 1,
-          }));
-          const { error: insertClientsError } = await supabase
-            .from("daily_run_clients")
-            .insert(payload);
-          if (insertClientsError) throw insertClientsError;
-        }
+        const sorted = [...missing].sort((a, b) => urgencyScore(b) - urgencyScore(a));
+        const startOrdinal = existingIds.size;
+        const payload = sorted.map((client, index) => ({
+          user_id: user.id,
+          daily_run_id: run.id,
+          client_id: client.id,
+          ordinal_index: startOrdinal + index + 1,
+        }));
+        const { error: insertError } = await supabase
+          .from("daily_run_clients")
+          .insert(payload);
+        if (insertError) throw insertError;
       }
 
       return run;
@@ -122,13 +120,13 @@ export default function MorningDeck() {
       const { data, error } = await supabase
         .from("daily_run_clients")
         .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients(*)"
+          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients!inner(*)"
         )
         .eq("daily_run_id", dailyRun?.id)
+        .eq("client.status", "active")
         .order("ordinal_index", { ascending: true });
       if (error) throw error;
-      // Filter active clients in JS — avoids PostgREST aliased-resource filter bugs
-      return (data ?? []).filter((item) => (item.client as any)?.status === "active");
+      return data ?? [];
     },
   });
 
