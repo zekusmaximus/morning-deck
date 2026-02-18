@@ -109,15 +109,13 @@ export default function MorningDeck() {
     },
   });
 
-  const { data: runClients, isLoading: itemsLoading } = useQuery({
+  const { data: runClients, isLoading: itemsLoading, isError: itemsError } = useQuery({
     queryKey: ["daily-run-clients", dailyRun?.id],
     enabled: !!dailyRun?.id,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("daily_run_clients")
-        .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients(*)"
-        )
+        .select("*,client:clients(*)")
         .eq("daily_run_id", dailyRun?.id)
         .order("ordinal_index", { ascending: true });
       if (error) throw error;
@@ -498,6 +496,21 @@ export default function MorningDeck() {
             </div>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  if (itemsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <p className="text-destructive font-medium">Failed to load deck items.</p>
+        <p className="text-sm text-muted-foreground">Please try refreshing.</p>
+        <Button
+          variant="outline"
+          onClick={() => queryClient.invalidateQueries({ queryKey: ["daily-run-clients"] })}
+        >
+          Retry
+        </Button>
       </div>
     );
   }

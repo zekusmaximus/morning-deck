@@ -29,23 +29,37 @@ export default function Home() {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, isError } = useQuery({
     queryKey: ["dashboard-stats", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const todayKey = getNyDateKey();
-      const [{ data: clients, error: clientsError }, { data: tasks, error: tasksError }] =
-        await Promise.all([
-          supabase.from("clients").select("id,name,status,priority,last_contact_made_at"),
+      const [clientsResult, tasksResult] =
+        await Promise.allSettled([
+          supabase.from("clients").select("*"),
           supabase
             .from("client_tasks")
-            .select("id,title,is_complete,due_date,client_id,clients(name)")
+            .select("*,clients(name)")
             .eq("is_complete", false)
             .order("due_date", { ascending: true, nullsFirst: false }),
         ]);
 
-      if (clientsError) throw clientsError;
-      if (tasksError) throw tasksError;
+      const clients =
+        clientsResult.status === "fulfilled" && !clientsResult.value.error
+          ? clientsResult.value.data
+          : null;
+      const tasks =
+        tasksResult.status === "fulfilled" && !tasksResult.value.error
+          ? tasksResult.value.data
+          : null;
+
+      if (!clients) {
+        const err =
+          clientsResult.status === "fulfilled"
+            ? clientsResult.value.error
+            : clientsResult.reason;
+        throw err ?? new Error("Failed to load clients");
+      }
 
       const activeClients = clients?.filter((client) => client.status === "active") ?? [];
       const inactiveClients = clients?.filter((client) => client.status === "inactive") ?? [];
@@ -153,6 +167,21 @@ export default function Home() {
           Sign in to review your clients and start today&#39;s deck.
         </p>
         <Button onClick={() => setLocation("/login")}>Go to login</Button>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+        <AlertTriangle className="h-8 w-8 text-destructive" />
+        <h1 className="text-xl font-semibold">Failed to load dashboard</h1>
+        <p className="text-muted-foreground max-w-md">
+          There was a problem loading your client data. Please try refreshing.
+        </p>
+        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] })}>
+          Retry
+        </Button>
       </div>
     );
   }
