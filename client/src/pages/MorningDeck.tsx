@@ -38,6 +38,21 @@ import { toast } from "sonner";
 import { ensureSafeUrl } from "@/lib/safe-url";
 import { loadActiveRunClients } from "@/lib/morning-deck-loader";
 
+const getPostgrestErrorText = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const maybeMessage = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+    const maybeDetails = "details" in error ? String((error as { details?: unknown }).details ?? "") : "";
+    const maybeHint = "hint" in error ? String((error as { hint?: unknown }).hint ?? "") : "";
+    return [maybeMessage, maybeDetails, maybeHint].filter(Boolean).join(" ");
+  }
+  return "";
+};
+
+const isMissingColumnError = (error: unknown, column: string) =>
+  new RegExp(`\\b${column}\\b`, "i").test(getPostgrestErrorText(error)) &&
+  /column/i.test(getPostgrestErrorText(error));
+
 export default function MorningDeck() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -333,13 +348,24 @@ export default function MorningDeck() {
         .from("daily_run_clients")
         .update({ contact_made: checked })
         .eq("id", itemId);
-      if (error) throw error;
+      if (error && !isMissingColumnError(error, "contact_made")) throw error;
+
       if (checked) {
         const now = new Date().toISOString();
-        await supabase
+        const { error: clientUpdateError } = await supabase
           .from("clients")
           .update({ last_touched_at: now, last_contact_made_at: now })
           .eq("id", clientId);
+        if (clientUpdateError) {
+          if (!isMissingColumnError(clientUpdateError, "last_contact_made_at")) {
+            throw clientUpdateError;
+          }
+          const { error: fallbackError } = await supabase
+            .from("clients")
+            .update({ last_touched_at: now })
+            .eq("id", clientId);
+          if (fallbackError) throw fallbackError;
+        }
       }
     },
     onSuccess: () => {

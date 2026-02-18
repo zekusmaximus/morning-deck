@@ -32,6 +32,21 @@ type SupabaseLike = {
 const toError = (error: unknown, fallback: string) =>
   error instanceof Error ? error : new Error(fallback);
 
+const getErrorText = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const maybeMessage = "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+    const maybeDetails = "details" in error ? String((error as { details?: unknown }).details ?? "") : "";
+    const maybeHint = "hint" in error ? String((error as { hint?: unknown }).hint ?? "") : "";
+    return [maybeMessage, maybeDetails, maybeHint].filter(Boolean).join(" ");
+  }
+  return "";
+};
+
+const isMissingColumnError = (error: unknown, column: string) =>
+  new RegExp(`\\b${column}\\b`, "i").test(getErrorText(error)) &&
+  /column/i.test(getErrorText(error));
+
 export async function loadActiveRunClients({
   supabase,
   userId,
@@ -52,20 +67,38 @@ export async function loadActiveRunClients({
   const activeClientList = activeClients ?? [];
   if (activeClientList.length === 0) return [];
 
-  const activeClientIds = activeClientList.map((client) => client.id);
-
-  const { data: rows, error: rowsError } = (await supabase
+  const withContactMade = (await supabase
     .from("daily_run_clients")
     .select("id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made")
     .eq("daily_run_id", dailyRunId)
-    .in("client_id", activeClientIds)
     .order("ordinal_index", { ascending: true })) as QueryResult<Omit<DeckRow, "client">>;
 
-  if (rowsError) throw toError(rowsError, "Failed to load daily run clients.");
+  let rows = withContactMade.data ?? [];
+  if (withContactMade.error) {
+    if (!isMissingColumnError(withContactMade.error, "contact_made")) {
+      throw toError(withContactMade.error, "Failed to load daily run clients.");
+    }
+
+    const withoutContactMade = (await supabase
+      .from("daily_run_clients")
+      .select("id,client_id,ordinal_index,outcome,quick_note,reviewed_at")
+      .eq("daily_run_id", dailyRunId)
+      .order("ordinal_index", { ascending: true })) as QueryResult<
+      Omit<DeckRow, "client" | "contact_made">
+    >;
+
+    if (withoutContactMade.error) {
+      throw toError(withoutContactMade.error, "Failed to load daily run clients.");
+    }
+
+    rows = (withoutContactMade.data ?? []).map((row) => ({ ...row, contact_made: false }));
+  }
 
   const clientsById = new Map(activeClientList.map((client) => [client.id, client] as const));
+  const activeClientIds = new Set(activeClientList.map((client) => client.id));
 
-  return (rows ?? [])
+  return rows
+    .filter((row) => activeClientIds.has(row.client_id))
     .map((row) => {
       const client = clientsById.get(row.client_id);
       if (!client) return null;
