@@ -50,6 +50,7 @@ export default function MorningDeck() {
 
   const { data: dailyRun, isLoading: runLoading } = useQuery({
     queryKey: ["daily-run", todayKey, user?.id],
+    enabled: !!user,
     queryFn: async () => {
       if (!user) return null;
       let { data: run, error } = await supabase

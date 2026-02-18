@@ -30,7 +30,7 @@ export default function Home() {
   const [contactsOpen, setContactsOpen] = useState(false);
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const todayKey = getNyDateKey();
@@ -129,7 +129,7 @@ export default function Home() {
     },
   });
 
-  if (isLoading) {
+  if (loading || isLoading) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -145,7 +145,7 @@ export default function Home() {
     );
   }
 
-  if (!loading && !user) {
+  if (!user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Welcome to Morning Deck</h1>
