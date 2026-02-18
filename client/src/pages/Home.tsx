@@ -40,6 +40,7 @@ export default function Home() {
           supabase
             .from("client_tasks")
             .select("id,title,is_complete,due_date,client_id,clients(name)")
+            .eq("user_id", user!.id)
             .eq("is_complete", false)
             .order("due_date", { ascending: true, nullsFirst: false }),
         ]);
@@ -67,6 +68,7 @@ export default function Home() {
       const { data: recentRuns } = await supabase
         .from("daily_runs")
         .select("id,run_date,daily_run_clients(outcome)")
+        .eq("user_id", user!.id)
         .order("run_date", { ascending: false })
         .limit(60);
 
