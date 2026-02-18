@@ -10,7 +10,9 @@
       "Bash(node -e:*)",
       "Bash(npm cache clean:*)",
       "Bash(npm --version:*)",
-      "Bash(pnpm add:*)"
+      "Bash(pnpm add:*)",
+      "Bash(pnpm store prune:*)",
+      "Bash(pnpm install:*)"
     ]
   }
 }
