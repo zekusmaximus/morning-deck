@@ -71,18 +71,21 @@ export default function MorningDeck() {
         run = created;
       }
 
-      const { data: runClients } = await supabase
-        .from("daily_run_clients")
-        .select("id,client:clients!inner(id)")
-        .eq("daily_run_id", run.id)
-        .eq("client.status", "active");
+      // Parallel: check if run is already populated AND pre-fetch active clients
+      const [{ count: existingCount }, { data: clients, error: clientsError }] =
+        await Promise.all([
+          supabase
+            .from("daily_run_clients")
+            .select("*", { count: "exact", head: true })
+            .eq("daily_run_id", run.id),
+          supabase
+            .from("clients")
+            .select("id,name,priority,last_touched_at")
+            .eq("user_id", user.id)
+            .eq("status", "active"),
+        ]);
 
-      if (!runClients || runClients.length === 0) {
-        const { data: clients, error: clientsError } = await supabase
-          .from("clients")
-          .select("id,name,priority,last_touched_at")
-          .eq("user_id", user.id)
-          .eq("status", "active");
+      if (!existingCount) {
         if (clientsError) throw clientsError;
 
         const priorityWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -119,13 +122,13 @@ export default function MorningDeck() {
       const { data, error } = await supabase
         .from("daily_run_clients")
         .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients!inner(*)"
+          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients(*)"
         )
         .eq("daily_run_id", dailyRun?.id)
-        .eq("client.status", "active")
         .order("ordinal_index", { ascending: true });
       if (error) throw error;
-      return data ?? [];
+      // Filter active clients in JS — avoids PostgREST aliased-resource filter bugs
+      return (data ?? []).filter((item) => (item.client as any)?.status === "active");
     },
   });
 
