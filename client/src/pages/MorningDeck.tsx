@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ensureSafeUrl } from "@/lib/safe-url";
+import { loadActiveRunClients } from "@/lib/morning-deck-loader";
 
 export default function MorningDeck() {
   const { user } = useAuth();
@@ -48,7 +49,7 @@ export default function MorningDeck() {
   const [notesLimit, setNotesLimit] = useState(10);
   const [focusNote, setFocusNote] = useState("");
 
-  const { data: dailyRun, isLoading: runLoading } = useQuery({
+  const { data: dailyRun, isLoading: runLoading, error: runError } = useQuery({
     queryKey: ["daily-run", todayKey, user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -66,7 +67,7 @@ export default function MorningDeck() {
       if (error) throw error;
 
       // Fetch existing deck client IDs + all active clients in parallel
-      const [{ data: existingEntries }, { data: activeClients, error: clientsError }] =
+      const [{ data: existingEntries, error: existingEntriesError }, { data: activeClients, error: clientsError }] =
         await Promise.all([
           supabase
             .from("daily_run_clients")
@@ -78,6 +79,7 @@ export default function MorningDeck() {
             .eq("user_id", user.id)
             .eq("status", "active"),
         ]);
+      if (existingEntriesError) throw existingEntriesError;
       if (clientsError) throw clientsError;
 
       // Sync: add any active clients not yet in today's deck
@@ -113,25 +115,22 @@ export default function MorningDeck() {
     },
   });
 
-  const { data: runClients, isLoading: itemsLoading } = useQuery({
+  const { data: runClients, isLoading: itemsLoading, error: itemsError } = useQuery({
     queryKey: ["daily-run-clients", dailyRun?.id],
-    enabled: !!dailyRun?.id,
+    enabled: !!dailyRun?.id && !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("daily_run_clients")
-        .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients!inner(*)"
-        )
-        .eq("daily_run_id", dailyRun?.id)
-        .eq("client.status", "active")
-        .order("ordinal_index", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      if (!dailyRun?.id || !user) return [];
+
+      return loadActiveRunClients({
+        supabase,
+        userId: user.id,
+        dailyRunId: dailyRun.id,
+      });
     },
   });
 
   const currentItem = runClients?.[currentIndex];
-  const currentClient = currentItem?.client as Record<string, any> | undefined;
+  const currentClient = currentItem?.client;
 
   const { data: bullets } = useQuery({
     queryKey: ["client-bullets", currentItem?.client_id],
@@ -448,6 +447,22 @@ export default function MorningDeck() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Skeleton className="h-12 w-12 rounded-full" />
         <Skeleton className="h-6 w-48" />
+      </div>
+    );
+  }
+
+  if (runError || itemsError) {
+    const errorMessage =
+      runError instanceof Error
+        ? runError.message
+        : itemsError instanceof Error
+          ? itemsError.message
+          : "Unable to load Morning Deck.";
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-2">
+        <p className="font-medium">Morning Deck failed to load.</p>
+        <p className="text-sm text-muted-foreground text-center">{errorMessage}</p>
       </div>
     );
   }
