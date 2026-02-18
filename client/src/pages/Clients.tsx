@@ -52,11 +52,14 @@ export default function Clients() {
   const { user } = useAuth();
 
   const { data: clients, isLoading } = useQuery({
-    queryKey: ["clients", statusFilter],
+    queryKey: ["clients", statusFilter, user?.id],
+    enabled: !!user,
     queryFn: async () => {
+      if (!user) return [];
       let query = supabase
         .from("clients")
         .select("*")
+        .eq("user_id", user.id)
         .order("name", { ascending: true });
       if (statusFilter !== "all") {
         query = query.eq("status", statusFilter);

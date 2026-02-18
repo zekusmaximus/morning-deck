@@ -54,8 +54,9 @@ export default function MorningDeck() {
     queryFn: async () => {
       if (!user) return null;
       let { data: run, error } = await supabase
-        .from("daily_runs")
+         .from("daily_runs")
         .select("*")
+        .eq("user_id", user.id)
         .eq("run_date", todayKey)
         .maybeSingle();
       if (error) throw error;
@@ -72,13 +73,15 @@ export default function MorningDeck() {
 
       const { data: runClients } = await supabase
         .from("daily_run_clients")
-        .select("id")
-        .eq("daily_run_id", run.id);
+        .select("id,client:clients!inner(id)")
+        .eq("daily_run_id", run.id)
+        .eq("client.status", "active");
 
       if (!runClients || runClients.length === 0) {
         const { data: clients, error: clientsError } = await supabase
           .from("clients")
           .select("id,name,priority,last_touched_at")
+          .eq("user_id", user.id)
           .eq("status", "active");
         if (clientsError) throw clientsError;
 
@@ -116,9 +119,10 @@ export default function MorningDeck() {
       const { data, error } = await supabase
         .from("daily_run_clients")
         .select(
-          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients(*)"
+          "id,client_id,ordinal_index,outcome,quick_note,reviewed_at,contact_made,client:clients!inner(*)"
         )
         .eq("daily_run_id", dailyRun?.id)
+        .eq("client.status", "active")
         .order("ordinal_index", { ascending: true });
       if (error) throw error;
       return data ?? [];

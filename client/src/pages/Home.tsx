@@ -36,10 +36,11 @@ export default function Home() {
       const todayKey = getNyDateKey();
       const [{ data: clients, error: clientsError }, { data: tasks, error: tasksError }] =
         await Promise.all([
-          supabase.from("clients").select("id,name,status,priority,last_contact_made_at"),
+          supabase.from("clients").select("id,name,status,priority,last_touched_at").eq("user_id", user!.id),
           supabase
             .from("client_tasks")
             .select("id,title,is_complete,due_date,client_id,clients(name)")
+            .eq("user_id", user!.id)
             .eq("is_complete", false)
             .order("due_date", { ascending: true, nullsFirst: false }),
         ]);
@@ -52,8 +53,8 @@ export default function Home() {
       const prospectClients = clients?.filter((client) => client.status === "prospect") ?? [];
       const now = new Date();
       const needsAttention = activeClients.filter((client) => {
-        if (!client.last_contact_made_at) return true;
-        const diff = now.getTime() - new Date(client.last_contact_made_at).getTime();
+        if (!client.last_touched_at) return true;
+        const diff = now.getTime() - new Date(client.last_touched_at).getTime();
         return diff >= 7 * 24 * 60 * 60 * 1000;
       });
       const overdueTasks =
@@ -67,6 +68,7 @@ export default function Home() {
       const { data: recentRuns } = await supabase
         .from("daily_runs")
         .select("id,run_date,daily_run_clients(outcome)")
+        .eq("user_id", user!.id)
         .order("run_date", { ascending: false })
         .limit(60);
 
